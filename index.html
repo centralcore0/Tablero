@@ -1,1232 +1,434 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="UTF-8">
-<title>Directorio de clientes - Reply Latam</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tablero de Tickets</title>
 
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
-<style>
-:root{--bg-1:#030712;--bg-2:#0b1220;--surface:rgba(15,23,42,.58);--stroke:rgba(148,163,184,.24);--text:#e2e8f0;--muted:#94a3b8;--accent:#7c3aed;--accent-2:#06b6d4;--danger:#dc2626;--ok:#16a34a}
-*{box-sizing:border-box}
-body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text);background:radial-gradient(1000px 500px at 10% -10%,rgba(124,58,237,.3),transparent 55%),radial-gradient(900px 500px at 100% -20%,rgba(6,182,212,.25),transparent 60%),linear-gradient(180deg,var(--bg-2),var(--bg-1));min-height:100vh;padding:clamp(12px,2.4vw,26px)}
-.container{max-width:1280px;margin:auto}
-.card{background:var(--surface);backdrop-filter:blur(14px);border:1px solid var(--stroke);border-radius:16px;padding:clamp(12px,1.6vw,16px);margin-bottom:12px;box-shadow:0 10px 40px rgba(0,0,0,.28);animation:fadeIn .35s ease both}
-@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-button,.btn{border:none;color:#fff;padding:10px 14px;font-size:14px;border-radius:10px;cursor:pointer;background:linear-gradient(135deg,var(--accent),#4338ca);transition:transform .18s ease, box-shadow .2s ease, opacity .2s ease;box-shadow:0 6px 18px rgba(124,58,237,.35)}
-button:hover,.btn:hover{transform:translateY(-1px);box-shadow:0 12px 26px rgba(124,58,237,.35)}
-button.secondary{background:#1e293b;box-shadow:none}
-button.danger{background:linear-gradient(135deg,#ef4444,var(--danger));box-shadow:0 6px 16px rgba(220,38,38,.4)}
-button.ghost{background:rgba(30,41,59,.4);border:1px solid rgba(148,163,184,.25);box-shadow:none}
-button.warn{background:linear-gradient(135deg,#f59e0b,#d97706);box-shadow:0 6px 16px rgba(245,158,11,.4)}
-button:disabled{opacity:.45;cursor:not-allowed;transform:none}
-label{font-size:12px;color:#cbd5e1;display:block;margin:0 0 6px}
-input,select,textarea{width:100%;padding:11px 12px;font-size:14px;border-radius:11px;border:1px solid rgba(148,163,184,.24);background:rgba(2,6,23,.6);color:var(--text);margin-bottom:10px;outline:none;transition:border-color .2s ease, box-shadow .2s ease}
-input:focus,select:focus,textarea:focus{border-color:var(--accent-2);box-shadow:0 0 0 3px rgba(6,182,212,.2)}
-textarea{min-height:86px;resize:vertical}
-.small{font-size:12px;color:var(--muted)}
-.row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 220px}
-.inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.grid{display:grid;grid-template-columns:1fr;gap:12px}
-@media (min-width:980px){.grid{grid-template-columns:1.2fr .9fr}}
-.badge{font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid var(--stroke)}
-.badge.ok{color:#86efac;border-color:rgba(34,197,94,.45);background:rgba(34,197,94,.12)}
-.badge.off{color:#fca5a5;border-color:rgba(239,68,68,.45);background:rgba(239,68,68,.12)}
-.badge.warn{color:#fde68a;border-color:rgba(245,158,11,.45);background:rgba(245,158,11,.12)}
-.searchWrap{position:relative}.searchWrap input{padding-left:36px;margin:0}.searchWrap:before{content:'🔎';position:absolute;left:11px;top:8px;opacity:.65}
-.switch{position:relative;display:inline-block;width:52px;height:28px}.switch input{opacity:0;width:0;height:0;margin:0}.slider{position:absolute;inset:0;cursor:pointer;background:#334155;transition:.2s;border-radius:999px}.slider:before{content:"";position:absolute;height:22px;width:22px;left:3px;top:3px;background:white;border-radius:50%;transition:.2s}.switch input:checked + .slider{background:linear-gradient(135deg,#16a34a,#22c55e)}.switch input:checked + .slider:before{transform:translateX(24px)}
-.tableWrap{
-  overflow-x:hidden;   /* NO scroll horizontal */
-  overflow-y:auto;     /* si crece mucho en vertical, ok */
-  border:1px solid var(--stroke);
-  border-radius:12px;
-}
-.table{
-  width:100%;
-  border-collapse:collapse;
-  min-width:0; /* elimina el scroll forzado */
-  background:rgba(2,6,23,.38);
-  table-layout:fixed; /* evita que el email estire la tabla */
-}
-.table th,.table td{padding:10px;border-bottom:1px solid rgba(148,163,184,.12);text-align:left;vertical-align:top}
-  /* Permite que textos largos corten línea */
-.table th, .table td{
-  overflow-wrap:anywhere;
-  word-break:break-word;
-}
-.table th{font-size:12px;color:#cbd5e1;letter-spacing:.3px;text-transform:uppercase;background:rgba(15,23,42,.85);position:sticky;top:0;z-index:2}
-.table tbody tr:hover{background:rgba(30,41,59,.45)}
-.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-.modalBack{position:fixed;inset:0;background:rgba(2,6,23,.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:16px;z-index:99}
-.modal{width:min(760px,100%);max-height:90vh;overflow:auto}
-.hidden{display:none!important}
-@media (max-width:768px){h2{font-size:22px}h3{font-size:18px}.row>*{flex:1 1 100%}.table{min-width:800px}}
-.kpiGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
-@media (max-width:900px){.kpiGrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-.kpi{padding:12px;border:1px solid var(--stroke);border-radius:14px;background:rgba(2,6,23,.35)}
-.kpi .label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
-.kpi .value{font-size:22px;margin-top:4px}
-.feedItem{padding:10px;border:1px solid rgba(148,163,184,.14);border-radius:12px;background:rgba(2,6,23,.25);margin-bottom:8px}
-.feedTop{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
-.feedType{font-weight:600}
-.feedMeta{font-size:12px;color:var(--muted);margin-top:4px}
+  <style>
+    :root{--bg-1:#030712;--bg-2:#0b1220;--surface:rgba(15,23,42,.58);--stroke:rgba(148,163,184,.24);--text:#e2e8f0;--muted:#94a3b8;--accent:#7c3aed;--accent-2:#06b6d4;--danger:#dc2626;--ok:#16a34a}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text);background:radial-gradient(1000px 500px at 10% -10%,rgba(124,58,237,.3),transparent 55%),radial-gradient(900px 500px at 100% -20%,rgba(6,182,212,.25),transparent 60%),linear-gradient(180deg,var(--bg-2),var(--bg-1));min-height:100vh;padding:clamp(12px,2.4vw,26px)}
+    .container{max-width:1400px;margin:auto}
+    .card{background:var(--surface);backdrop-filter:blur(14px);border:1px solid var(--stroke);border-radius:16px;padding:clamp(12px,1.6vw,16px);margin-bottom:12px;box-shadow:0 10px 40px rgba(0,0,0,.28);animation:fadeIn .35s ease both}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+    button,.btn{border:none;color:#fff;padding:10px 14px;font-size:14px;border-radius:10px;cursor:pointer;background:linear-gradient(135deg,var(--accent),#4338ca);transition:transform .18s ease, box-shadow .2s ease, opacity .2s ease;box-shadow:0 6px 18px rgba(124,58,237,.35)}
+    button:hover,.btn:hover{transform:translateY(-1px);box-shadow:0 12px 26px rgba(124,58,237,.35)}
+    button.secondary{background:#1e293b;box-shadow:none}
+    button.danger{background:linear-gradient(135deg,#ef4444,var(--danger));box-shadow:0 6px 16px rgba(220,38,38,.4)}
+    button.ghost{background:rgba(30,41,59,.4);border:1px solid rgba(148,163,184,.25);box-shadow:none}
+    button:disabled{opacity:.45;cursor:not-allowed;transform:none}
+    label{font-size:12px;color:#cbd5e1;display:block;margin:0 0 6px}
+    input,select,textarea{width:100%;padding:11px 12px;font-size:14px;border-radius:11px;border:1px solid rgba(148,163,184,.24);background:rgba(2,6,23,.6);color:var(--text);margin-bottom:10px;outline:none;transition:border-color .2s ease, box-shadow .2s ease}
+    input:focus,select:focus,textarea:focus{border-color:var(--accent-2);box-shadow:0 0 0 3px rgba(6,182,212,.2)}
+    textarea{min-height:86px;resize:vertical}
+    .small{font-size:12px;color:var(--muted)}
+    .row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 220px}
+    .inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .grid{display:grid;grid-template-columns:1fr;gap:12px}
+    @media (min-width:980px){.grid{grid-template-columns:1.2fr .9fr}}
+    .badge{font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid var(--stroke)}
+    .badge.ok{color:#86efac;border-color:rgba(34,197,94,.45);background:rgba(34,197,94,.12)}
+    .badge.off{color:#fca5a5;border-color:rgba(239,68,68,.45);background:rgba(239,68,68,.12)}
+    .searchWrap{position:relative}.searchWrap input{padding-left:36px;margin:0}.searchWrap:before{content:'🔎';position:absolute;left:11px;top:8px;opacity:.65}
+    .kpiGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+    @media (max-width:900px){.kpiGrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    .kpi{padding:12px;border:1px solid var(--stroke);border-radius:14px;background:rgba(2,6,23,.35)}
+    .kpi .label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
+    .kpi .value{font-size:22px;margin-top:4px}
+    .feedItem{padding:10px;border:1px solid rgba(148,163,184,.14);border-radius:12px;background:rgba(2,6,23,.25);margin-bottom:8px}
+    .feedTop{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+    .feedType{font-weight:600}
+    .feedMeta{font-size:12px;color:var(--muted);margin-top:4px}
 
-</style>
+    .board{display:grid;grid-template-columns:repeat(5,minmax(260px,1fr));gap:12px;overflow:auto}
+    .column{background:rgba(2,6,23,.35);border:1px solid var(--stroke);border-radius:12px;padding:10px;min-height:220px}
+    .column h4{margin:4px 0 10px;font-size:14px;text-transform:uppercase;color:#cbd5e1;letter-spacing:.3px}
+    .ticket{background:rgba(15,23,42,.8);border:1px solid rgba(148,163,184,.2);border-radius:10px;padding:10px;margin-bottom:8px}
+    .ticket h5{margin:0 0 8px;font-size:14px}
+    .ticket p{margin:0 0 8px;font-size:13px;color:#cbd5e1}
+    .ticket .meta{font-size:11px;color:var(--muted)}
+    .modalBack{position:fixed;inset:0;background:rgba(2,6,23,.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:16px;z-index:99}
+    .modal{width:min(760px,100%);max-height:90vh;overflow:auto}
+    .hidden{display:none!important}
+  </style>
 </head>
 <body>
-<div class="container" id="app"></div>
+  <div class="container" id="app"></div>
 
-<div id="clientModal" class="modalBack hidden">
-  <div class="card modal">
-    <div class="inline" style="justify-content:space-between;margin-bottom:8px">
-      <h3 id="modalTitle" style="margin:0">Nuevo cliente</h3>
-      <button class="secondary" onclick="closeClientModal()">Cerrar</button>
-    </div>
-
-    <div class="row">
-      <div><label>Cliente</label><input id="cClientName"></div>
-      <div><label>Contraseña</label><input id="cPassword"></div>
-    </div>
-
-    <div class="row">
-      <div><label>País</label><input id="cCountry"></div>
-      <div><label>Email</label><input id="cEmail"></div>
-    </div>
-
-    <div><label>Notas</label><textarea id="cNotes"></textarea></div>
-
-    <div>
-      <label>Área</label>
-      <select id="cArea"></select>
-    </div>
-
-    <div class="inline" style="justify-content:space-between;margin:8px 0 6px">
-      <div class="inline">
-        <label style="margin:0">Cargar sin QR</label>
-        <label class="switch" style="margin:0">
-          <input type="checkbox" id="cNoQr" onchange="toggleNoQr(this.checked)">
-          <span class="slider"></span>
-        </label>
+  <div id="ticketModal" class="modalBack hidden">
+    <div class="card modal">
+      <div class="inline" style="justify-content:space-between;margin-bottom:8px">
+        <h3 style="margin:0">Nuevo ticket</h3>
+        <button class="secondary" onclick="closeTicketModal()">Cerrar</button>
       </div>
-      <span class="small">Si activás esto, el cliente queda sin TOTP.</span>
-    </div>
 
-    <div>
-      <label>QR de autenticación</label>
-      <input type="file" id="qrFile" accept="image/*">
-    </div>
+      <div class="row">
+        <div><label>Título</label><input id="tTitle" /></div>
+        <div><label>Prioridad</label><select id="tPriority"><option value="Baja">Baja</option><option value="Media">Media</option><option value="Alta">Alta</option></select></div>
+      </div>
+      <div><label>Detalle</label><textarea id="tDescription"></textarea></div>
+      <div><label>Cliente/Área</label><input id="tClient" /></div>
 
-    <div class="inline" style="justify-content:flex-end;margin-top:4px">
-      <button class="ghost" onclick="extractSecret()" id="btnExtractSecret">Extraer SECRET</button>
-      <button onclick="saveClient()" id="btnSaveClient">Guardar cliente</button>
-      <button class="secondary" onclick="closeClientModal()">Cancelar</button>
-    </div>
-
-    <div id="secretPreview" class="small" style="margin-top:8px"></div>
-  </div>
-</div>
-
-
-<div id="userAreaModal" class="modalBack hidden">
-  <div class="card modal" style="max-width:520px">
-    <div class="inline" style="justify-content:space-between;margin-bottom:8px">
-      <h3 style="margin:0">Cambiar área de usuario</h3>
-      <button class="secondary" onclick="closeUserAreaModal()">Cerrar</button>
-    </div>
-    <p class="small" id="userAreaModalLabel" style="margin-top:0"></p>
-    <label>Área</label>
-    <select id="userAreaModalSelect"></select>
-    <div class="inline" style="justify-content:flex-end">
-      <button onclick="saveUserAreaFromModal()">Guardar área</button>
-      <button class="secondary" onclick="closeUserAreaModal()">Cancelar</button>
+      <div class="inline" style="justify-content:flex-end">
+        <button onclick="saveTicket()">Crear ticket</button>
+        <button class="secondary" onclick="closeTicketModal()">Cancelar</button>
+      </div>
     </div>
   </div>
-</div>
 
-<script>
-const firebaseConfig={
-  apiKey:"AIzaSyBBrsdfpWlrEbxXHTvOzX4X8wXpNagWenA",
-  authDomain:"directorio-c2ee0.firebaseapp.com",
-  databaseURL:"https://directorio-c2ee0-default-rtdb.firebaseio.com",
-  projectId:"directorio-c2ee0"
-}
+  <script>
+    firebase.initializeApp({
+      apiKey: "AIzaSyA4-yTeI0CemnlROxF9hIgj_HxiDLvYZTY",
+      authDomain: "tablero-a0658.firebaseapp.com",
+      databaseURL: "https://tablero-a0658-default-rtdb.firebaseio.com",
+      projectId: "tablero-a0658",
+      storageBucket: "tablero-a0658.firebasestorage.app",
+      messagingSenderId: "1018762078941",
+      appId: "1:1018762078941:web:785861e9f2ddb843b88934"
+    })
 
-let db=null
+    const db = firebase.database()
+    const SUPER_USER_EMAIL = "consultoria@tablero.local"
+    const SUPER_USER_PASSWORD = "1234"
 
-function initFirebase(){
-  if(!window.firebase){
-    console.error("Firebase no cargó. Revisá tu conexión o bloqueadores de scripts.")
-    return false
-  }
+    let currentUser = null
+    let currentRole = null
+    let ticketSearchTerm = ""
 
-  try{
-    if(!firebase.apps.length) firebase.initializeApp(firebaseConfig)
-    db=firebase.database()
-    return true
-  }catch(err){
-    console.error("No se pudo inicializar Firebase:", err)
-    return false
-  }
-}
+    const STATUS = {
+      unassigned: "Pendientes de asignar",
+      todo: "Por hacer",
+      doing: "En curso",
+      recurrent: "Recurrente",
+      done: "Finalizadas"
+    }
 
-let currentUser=null
-let currentRole=null
-let clientSearchTerm=""
-let extractedSecret=null
-let clientsCache={}
-let revealedTotpByClient={}
-let totpIntervalsById={}
-let modalMode="create"          // create | edit
-let editingClientId=null
-let existingSecret=null         // secret ya guardado en DB (para editar sin re-subir QR)
-let editingUserKeyForArea=null
-let selectedClientIds={}
-let usersPage=1
-const USERS_PER_PAGE=3
+    function emailKey(email){ return (email||"").toLowerCase().replace(/[.#$/\[\]]/g, "_") }
+    function htmlEscape(v){ return String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;") }
 
-const SUPER_ADMIN_EMAIL="alan.pereyra@replylatam.com"
-const SUPER_ADMIN_PASSWORD="1234"
-const SLACK_WEBHOOK_URL="https://hooks.slack.com/services/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" // webhook Slack para alertas
-const SLACK_BOT_TOKEN="" // opcional: xoxb-... para responder en hilo al resolver
-const SLACK_CHANNEL_ID="" // opcional: ID de canal (ej: C0123456789)
-const SHEET_ID="1sY-int3hJ1maLwYFyt9NLXG9OZoHUO7Ac9i9zMmWMw4" // referencia de planilla
+    async function logActivity(eventType, details={}){
+      try{
+        await db.ref("activity_logs").push({
+          eventType,
+          email: currentUser?.email || "sin-usuario",
+          role: currentRole || "sin-rol",
+          timestampIso: new Date().toISOString(),
+          ...details
+        })
+      }catch(_){ }
+    }
 
-function base32ToUint8(base32){
-  const alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
-  let bits="",result=[]
-  base32=(base32||"").replace(/=+$/,"").replace(/\s+/g,"").toUpperCase()
-  for(let i=0;i<base32.length;i++){
-    const val=alphabet.indexOf(base32[i]); if(val===-1)continue
-    bits+=val.toString(2).padStart(5,"0")
-  }
-  for(let i=0;i+8<=bits.length;i+=8){result.push(parseInt(bits.substring(i,i+8),2))}
-  return new Uint8Array(result)
-}
+    async function ensureConsultoria(){
+      const ref = db.ref("users_by_email").child(emailKey(SUPER_USER_EMAIL))
+      const snap = await ref.once("value")
+      if(!snap.exists()){
+        await ref.set({
+          email: SUPER_USER_EMAIL,
+          password: SUPER_USER_PASSWORD,
+          role: "consultoria",
+          active: true,
+          createdAt: new Date().toISOString(),
+          createdBy: "system"
+        })
+      }
+    }
 
-async function generateTOTP(secret){
-  const key=await crypto.subtle.importKey("raw",base32ToUint8(secret),{name:"HMAC",hash:"SHA-1"},false,["sign"])
-  const epoch=Math.floor(Date.now()/1000)
-  const time=Math.floor(epoch/30)
-  const buffer=new ArrayBuffer(8)
-  const view=new DataView(buffer)
-  view.setUint32(4,time)
-  const hmac=await crypto.subtle.sign("HMAC",key,buffer)
-  const bytes=new Uint8Array(hmac)
-  const offset=bytes[bytes.length-1]&0xf
-  const code=((bytes[offset]&0x7f)<<24)|((bytes[offset+1]&0xff)<<16)|((bytes[offset+2]&0xff)<<8)|(bytes[offset+3]&0xff)
-  return(code%1000000).toString().padStart(6,"0")
-}
+    async function getUserFromDb(email){
+      const snap = await db.ref("users_by_email").child(emailKey(email)).once("value")
+      return snap.val()
+    }
 
-function emailKey(email){return (email||"").toLowerCase().replace(/[.#$/\[\]]/g,"_")}
-function htmlEscape(v){return String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;")}
+    function renderLogin(){
+      document.getElementById("app").innerHTML = `
+        <div class="card" style="max-width:480px;margin:40px auto">
+          <h2 style="margin-top:0">Tablero de tickets</h2>
+          <p class="small">Acceso por Email + Contraseña.</p>
+          <label>Email</label><input id="loginEmail" type="email">
+          <label>Contraseña</label><input id="loginPassword" type="password">
+          <button onclick="handleLogin()" style="width:100%">Entrar</button>
+          <p class="small" style="margin-top:10px">Usuario inicial consultoría: consultoria@tablero.local / 1234</p>
+        </div>`
+    }
 
-const SHEETS_WEBHOOK_URL="https://script.google.com/macros/s/AKfycbzb1jsnEXf2-pPlj4XqXv74IX18DTefCsQ6YIO9AmulRh8_w2-oiX_62ZleSJ587ABP/exec";
-const SHEETS_TOKEN=""; // si en Apps Script pusiste SHARED_TOKEN, pegalo acá
+    async function handleLogin(){
+      const email = document.getElementById("loginEmail").value.trim().toLowerCase()
+      const password = document.getElementById("loginPassword").value
+      if(!email || !password) return alert("Completá email y contraseña")
 
-async function logActivity(eventType, details={}){
-  const payload={
-    eventType,
-    email:currentUser?.email||"sin-usuario",
-    role:currentRole||"sin-rol",
-    timestampIso:new Date().toISOString(),
-    timestampLocal:new Date().toLocaleString(),
-    ...details
-  };
+      const user = await getUserFromDb(email)
+      if(!user || !user.active) return alert("Usuario inexistente o inactivo")
+      if(user.password !== password) return alert("Contraseña incorrecta")
 
-  if(!SHEETS_WEBHOOK_URL){
-    console.warn("SHEETS_WEBHOOK_URL no configurado", payload);
-    return;
-  }
+      currentUser = { email: user.email }
+      currentRole = user.role
 
-  // POST principal
-  try{
-    await fetch(`${SHEETS_WEBHOOK_URL}?token=${encodeURIComponent(SHEETS_TOKEN)}`,{
-      method:"POST",
-      mode:"no-cors",
-      body:JSON.stringify(payload)
-    });
-    return;
-  }catch(err){
-    console.warn("Falló POST hacia Sheets, fallback GET", err);
-  }
+      await db.ref("users_by_email").child(emailKey(email)).update({ lastAccessAt: new Date().toISOString() })
+      logActivity("login", { userAgent: navigator.userAgent })
+      renderApp()
+    }
 
-  // Fallback GET
-  try{
-    const q=encodeURIComponent(JSON.stringify(payload));
-    await fetch(`${SHEETS_WEBHOOK_URL}?token=${encodeURIComponent(SHEETS_TOKEN)}&payload=${q}`,{
-      method:"GET",
-      mode:"no-cors"
-    });
-  }catch(err2){
-    console.warn("No se pudo enviar log a Sheets", err2);
-  }
-}
+    function logout(){ currentUser = null; currentRole = null; renderLogin() }
 
-async function migrateActivityLogsToSheets(){
-  const snap = await db.ref("activity_logs").once("value");
-  const data = snap.val() || {};
-  const entries = Object.entries(data);
+    function renderApp(){
+      const isConsultoria = currentRole === "consultoria"
 
-  for (const [id, payload] of entries){
-    try{
-      await fetch(SHEETS_WEBHOOK_URL, { method:"POST", mode:"no-cors", body: JSON.stringify({ ...payload, firebaseId:id }) });
-    }catch(_){}
-  }
-
-  alert(`Migración terminada. Enviados: ${entries.length}`);
-}
-
-
-async function ensureSuperAdmin(){
-  const key=emailKey(SUPER_ADMIN_EMAIL)
-  const ref=db.ref("users_by_email").child(key)
-  const data={email:SUPER_ADMIN_EMAIL,password:SUPER_ADMIN_PASSWORD,role:"admin",active:true,createdAt:new Date().toISOString(),createdBy:"system"}
-  try{const snap=await ref.once("value"); if(!snap.exists()) await ref.set(data)}catch(_){ }
-}
-
-async function getUserFromDb(email){
-  try{const snap=await db.ref("users_by_email").child(emailKey(email)).once("value"); return snap.val()}catch(_){return null}
-}
-
-function getFallbackUser(email,password){
-  if(email===SUPER_ADMIN_EMAIL && password===SUPER_ADMIN_PASSWORD){
-    return {email:SUPER_ADMIN_EMAIL,password:SUPER_ADMIN_PASSWORD,role:"admin",active:true}
-  }
-  return null
-}
-
-function renderLogin(){
-  document.getElementById("app").innerHTML=`
-    <div class="card" style="max-width:480px;margin:40px auto">
-      <h2 style="margin-top:0">Directorio de clientes - Reply Latam</h2>
-      <p class="small">Acceso por Email + Contraseña.</p>
-      <label>Email</label><input id="loginEmail" type="email">
-      <label>Contraseña</label><input id="loginPassword" type="password">
-      <button onclick="handleLogin()" style="width:100%">Entrar</button>
-      <p class="small" style="margin-top:10px">Si es tu primera vez, pedí acceso al admin.</p>
-    </div>`
-}
-
-async function handleLogin(){
-  const email = document.getElementById("loginEmail").value.trim().toLowerCase()
-  const password = document.getElementById("loginPassword").value
-
-  if(!email || !password) return alert("Completá email y contraseña")
-
-  const dbUser = await getUserFromDb(email)
-  const fallback = getFallbackUser(email,password)
-
-  const user = dbUser || fallback
-
-  if(!user || !user.active){
-    return alert("Usuario inexistente o inactivo")
-  }
-
-  if(user.password !== password){
-    return alert("Contraseña incorrecta")
-  }
-
-  currentUser = { email: user.email, area: user.area || "" }
-  currentRole = user.role
-
-  await db.ref("users_by_email")
-    .child(emailKey(email))
-    .update({lastAccessAt:new Date().toISOString()})
-
-   // 🔵 LOG DE INICIO DE SESIÓN
-  logActivity("login", {
-    userAgent: navigator.userAgent
-  }).catch(()=>{})
-
-  renderApp()
-}
-
-
-function logout(){currentUser=null;currentRole=null;extractedSecret=null;renderLogin()}
-
-function renderApp(){
-  const role=currentRole
-  const email=currentUser.email
-
-  document.getElementById("app").innerHTML=`
-    <div class="grid">
-      <div class="card">
-        <div class="inline" style="justify-content:space-between">
-          <div>
-            <h2 style="margin:0">Directorio de clientes - Reply Latam</h2>
-            <p class="small" style="margin:6px 0 0">${role==="admin"?"Panel Admin":"Panel Operador"} · ${htmlEscape(email)}</p>
-          </div>
-          <div class="inline">
-            ${role==="admin"?`<button onclick="openClientModal()">+ Nuevo cliente</button>`:""}
-            <button class="secondary" onclick="logout()">Cerrar sesión</button>
-          </div>
-        </div>
-
-        ${role==="admin" ? `
-          <div style="margin-top:14px">
-            <h3 style="margin:0 0 10px">Resumen</h3>
-
-            <div class="kpiGrid">
-              <div class="kpi"><div class="label">Clientes</div><div class="value" id="kpiTotalClients">-</div></div>
-              <div class="kpi"><div class="label">Activos</div><div class="value" id="kpiActiveClients">-</div></div>
-              <div class="kpi"><div class="label">Inactivos</div><div class="value" id="kpiInactiveClients">-</div></div>
-              <div class="kpi"><div class="label">Alertas abiertas</div><div class="value" id="kpiOpenAlerts">-</div></div>
-              <div class="kpi"><div class="label">Operadores</div><div class="value" id="kpiOperators">-</div></div>
-              <div class="kpi"><div class="label">Último acceso</div><div class="value" style="font-size:14px;margin-top:8px" id="kpiLastAccess">-</div></div>
+      document.getElementById("app").innerHTML = `
+        <div class="grid">
+          <div class="card">
+            <div class="inline" style="justify-content:space-between">
+              <div>
+                <h2 style="margin:0">Tablero de tickets</h2>
+                <p class="small" style="margin:6px 0 0">${isConsultoria?"Panel Consultoría":"Panel Operador"} · ${htmlEscape(currentUser.email)}</p>
+              </div>
+              <div class="inline">
+                ${isConsultoria?`<button onclick="openTicketModal()">+ Nuevo ticket</button>`:""}
+                <button class="secondary" onclick="logout()">Cerrar sesión</button>
+              </div>
             </div>
 
             <div style="margin-top:14px">
-              <div class="inline" style="justify-content:space-between;align-items:center">
-                <h3 style="margin:0">Actividad reciente</h3>
-                <button class="ghost" onclick="loadDashboard()">Actualizar</button>
+              <h3 style="margin:0 0 10px">Dashboard</h3>
+              <div class="kpiGrid">
+                <div class="kpi"><div class="label">Tickets totales</div><div class="value" id="kpiTotal">-</div></div>
+                <div class="kpi"><div class="label">Pendientes de asignar</div><div class="value" id="kpiUnassigned">-</div></div>
+                <div class="kpi"><div class="label">En curso</div><div class="value" id="kpiDoing">-</div></div>
+                <div class="kpi"><div class="label">Finalizadas</div><div class="value" id="kpiDone">-</div></div>
+                <div class="kpi"><div class="label">Operadores</div><div class="value" id="kpiOperators">-</div></div>
+                <div class="kpi"><div class="label">Último acceso operador</div><div class="value" style="font-size:14px;margin-top:8px" id="kpiLastAccess">-</div></div>
               </div>
-              <div id="recentActivity" style="margin-top:10px"></div>
+              <div style="margin-top:14px">
+                <div class="inline" style="justify-content:space-between;align-items:center">
+                  <h3 style="margin:0">Actividad reciente</h3>
+                  <button class="ghost" onclick="loadDashboard()">Actualizar</button>
+                </div>
+                <div id="recentActivity" style="margin-top:10px"></div>
+              </div>
             </div>
           </div>
-        ` : ``}
-      </div>
 
-      ${role==="admin"?`
-      <div class="card">
-        <h3 style="margin-top:0">Gestión de usuarios</h3>
-        <div class="row">
-          <div><label>Email</label><input id="uEmail"></div>
-          <div><label>Contraseña</label><input id="uPassword" type="text"></div>
+          ${isConsultoria?`
+            <div class="card">
+              <h3 style="margin-top:0">Gestión de usuarios</h3>
+              <div class="row">
+                <div><label>Email</label><input id="uEmail"></div>
+                <div><label>Contraseña</label><input id="uPassword" type="text"></div>
+              </div>
+              <div class="row">
+                <div><label>Rol</label><select id="uRole"><option value="operator">Operador</option><option value="consultoria">Consultoría</option></select></div>
+                <div style="display:flex;align-items:flex-end"><button onclick="saveUserAccess()">Guardar usuario</button></div>
+              </div>
+              <div id="usersList" class="small"></div>
+            </div>
+          `:"<div></div>"}
         </div>
-        <div class="row">
-          <div><label>Rol</label><select id="uRole"><option value="operator">Operador</option><option value="admin">Admin</option></select></div>
-          <div><label>Área</label><select id="uArea"></select></div>
-          <div style="display:flex;align-items:flex-end"><button onclick="saveUserAccess()">Guardar usuario</button></div>
+
+        <div class="card">
+          <div class="inline" style="justify-content:space-between;margin-bottom:10px">
+            <h3 style="margin:0">Tickets</h3>
+            <span class="small">Vista Kanban de operación</span>
+          </div>
+          <div class="searchWrap"><input oninput="updateTicketSearch(this.value)" placeholder="Buscar por título, cliente o descripción"></div>
         </div>
-        <div class="inline" style="margin-top:6px">
-          <input id="newAreaName" placeholder="Nueva área (ej: ACCO)">
-          <button class="ghost" onclick="createArea()">Crear área</button>
-        </div>
-        <div id="usersList" class="small"></div>
-      </div>`:"<div></div>"}
-    </div>
 
-    <div class="card">
-      <div class="inline" style="justify-content:space-between;margin-bottom:10px">
-        <h3 style="margin:0">Clientes</h3>
-        <span class="small">${role==="admin"?"Vista admin":"Viendo todos los clientes activos"}</span>
-      </div>
-      <div class="searchWrap"><input oninput="updateClientSearch(this.value)"></div>
-      ${role==="admin"?`
-      <div class="inline" style="margin-top:10px">
-        <button class="danger" onclick="bulkDeleteClients()">Eliminar seleccionados</button>
-        <button class="secondary" onclick="bulkSetClientsActive(false)">Inactivar seleccionados</button>
-        <button class="ghost" onclick="bulkSetClientsActive(true)">Activar seleccionados</button>
-        <select id="bulkAreaSelect" style="max-width:220px;margin:0"></select>
-        <button class="warn" onclick="bulkAssignArea()">Asignar área</button>
-      </div>
-      <p class="small" id="bulkSelectionInfo" style="margin:8px 0 0">0 clientes seleccionados</p>
-      `:""}
-    </div>
+        <div class="card"><div id="boardContainer"></div></div>
+      `
 
-    <div class="card" id="clientsContainer"></div>
-
-    ${role==="admin"?`
-      <div class="card"><h3 style="margin-top:0">Alertas de operadores</h3><div id="operatorAlerts"></div></div>
-      <div class="card"><h3 style="margin-top:0">Último acceso de operadores</h3><div id="operatorsLastAccess"></div></div>
-    `:""}
-  `
-
-  selectedClientIds={}
-  loadClients()
-  if(role==="admin"){
-    loadAreaOptions()
-    loadUsersAdmin()
-    loadOperatorsLastAccess()
-    loadOperatorAlerts()
-    loadDashboard()
-    updateBulkSelectionInfo()
-  }
-}
-
-
-
-async function createArea(){
-  if(currentRole!=="admin") return
-  const input=document.getElementById("newAreaName")
-  let name=(input?.value||"").trim().toUpperCase()
-  if(!name) return alert("Ingresá un nombre de área")
-
-  if(isAreaScopedAdmin()){
-    const myArea=normalizeAreaName(currentUser?.area||"")
-    if(name!==myArea) return alert("Solo podés gestionar tu propia área")
-  }
-
-  const key=name.replace(/\s+/g,"_")
-  await db.ref("areas").child(key).set({name})
-  if(input) input.value=""
-  await loadAreaOptions()
-  if(currentRole==="admin") loadUsersAdmin()
-  alert("Área creada")
-}
-
-function normalizeAreaName(value){
-  return String(value||"").trim().toUpperCase()
-}
-
-async function getAreaNames(){
-  const snap=await db.ref("areas").once("value")
-  const raw=snap.val()||{}
-  const names=[]
-
-  Object.entries(raw).forEach(([key,val])=>{
-    if(typeof val==="string"){
-      const n=normalizeAreaName(val)
-      if(n) names.push(n)
-      return
+      if(isConsultoria) loadUsersAdmin()
+      loadTickets()
+      loadDashboard()
     }
 
-    if(val && typeof val==="object"){
-      const fromName=normalizeAreaName(val.name||val.area||val.label)
-      if(fromName){
-        names.push(fromName)
-      }else{
-        const fromKey=normalizeAreaName(key)
-        if(fromKey) names.push(fromKey)
-      }
+    function updateTicketSearch(value){ ticketSearchTerm = (value||"").trim().toLowerCase(); loadTickets() }
+
+    function openTicketModal(){ document.getElementById("ticketModal").classList.remove("hidden") }
+    function closeTicketModal(){
+      document.getElementById("tTitle").value = ""
+      document.getElementById("tDescription").value = ""
+      document.getElementById("tPriority").value = "Media"
+      document.getElementById("tClient").value = ""
+      document.getElementById("ticketModal").classList.add("hidden")
     }
-  })
 
-  const unique=[...new Set(names)].sort()
-  if(isAreaScopedAdmin()) return unique.filter((a)=>a===normalizeAreaName(currentUser?.area||""))
-  return unique
-}
+    async function saveTicket(){
+      const title = document.getElementById("tTitle").value.trim()
+      const description = document.getElementById("tDescription").value.trim()
+      const priority = document.getElementById("tPriority").value
+      const client = document.getElementById("tClient").value.trim()
 
-function fillAreaSelect(selectId, areas, selected=""){
-  const el=document.getElementById(selectId)
-  if(!el) return
-  el.innerHTML='<option value="">Sin área</option>' + areas.map(a=>`<option value="${htmlEscape(a)}">${htmlEscape(a)}</option>`).join("")
-  const normalized=normalizeAreaName(selected)
-  el.value=normalized
-  if(el.value!==normalized) el.value=""
-}
+      if(!title || !description || !client) return alert("Completá título, detalle y cliente/área")
 
-async function loadAreaOptions(selectedUserArea="", selectedClientArea=""){
-  const areas=await getAreaNames()
-  fillAreaSelect("uArea", areas, selectedUserArea)
-  fillAreaSelect("cArea", areas, selectedClientArea)
-  fillAreaSelect("userAreaModalSelect", areas, selectedUserArea)
-  fillAreaSelect("bulkAreaSelect", areas, selectedClientArea)
-}
-
-function isAreaScopedAdmin(){
-  return currentRole==="admin" && normalizeAreaName(currentUser?.area||"")!==""
-}
-
-function canAdminSeeArea(areaValue){
-  if(!isAreaScopedAdmin()) return true
-  return normalizeAreaName(areaValue)===normalizeAreaName(currentUser?.area||"")
-}
-
-function canSeeClientByArea(client){
-  if(currentRole==="admin") return canAdminSeeArea(client?.area||"")
-  const userArea=(currentUser?.area||"").trim().toUpperCase()
-  if(!userArea) return true
-
-  const clientArea=(client?.area||"").trim().toUpperCase()
-  const clientName=(client?.clientName||client?.name||"").trim().toUpperCase()
-
-  if(clientArea) return clientArea===userArea
-  return clientName.includes(userArea)
-}
-
-function updateClientSearch(value){clientSearchTerm=(value||"").trim().toLowerCase();loadClients()}
-
-function updateBulkSelectionInfo(){
-  const el=document.getElementById("bulkSelectionInfo")
-  if(!el) return
-  const count=Object.values(selectedClientIds).filter(Boolean).length
-  el.innerText=`${count} clientes seleccionados`
-}
-
-function toggleClientSelection(id, checked){
-  if(checked) selectedClientIds[id]=true
-  else delete selectedClientIds[id]
-  updateBulkSelectionInfo()
-}
-
-function toggleSelectAllClients(checked){
-  const rows=document.querySelectorAll(".clientSelectRow")
-  rows.forEach((cb)=>{
-    cb.checked=checked
-    const id=cb.getAttribute("data-id")
-    if(id){
-      if(checked) selectedClientIds[id]=true
-      else delete selectedClientIds[id]
-    }
-  })
-  updateBulkSelectionInfo()
-}
-
-function getSelectedClientIds(){
-  return Object.keys(selectedClientIds).filter((id)=>selectedClientIds[id])
-}
-
-async function bulkDeleteClients(){
-  const ids=getSelectedClientIds()
-  if(!ids.length) return alert("Seleccioná al menos un cliente")
-  if(!confirm(`¿Eliminar ${ids.length} clientes seleccionados?`)) return
-  await Promise.all(ids.map((id)=>db.ref("clients").child(id).remove()))
-  selectedClientIds={}
-  loadClients()
-}
-
-async function bulkSetClientsActive(active){
-  const ids=getSelectedClientIds()
-  if(!ids.length) return alert("Seleccioná al menos un cliente")
-  await Promise.all(ids.map((id)=>db.ref("clients").child(id).update({active})))
-  loadClients()
-}
-
-async function bulkAssignArea(){
-  const ids=getSelectedClientIds()
-  if(!ids.length) return alert("Seleccioná al menos un cliente")
-  const area=normalizeAreaName(document.getElementById("bulkAreaSelect")?.value||"")
-  await Promise.all(ids.map((id)=>db.ref("clients").child(id).update({area})))
-  loadClients()
-}
-
-function isOperatorTotpVisible(clientId){
-  if(currentRole==="admin") return true
-  const state=revealedTotpByClient[clientId]
-  if(!state) return false
-  return Date.now()<state.expiresAt
-}
-
-function clearTotpInterval(clientId){
-  const refs=totpIntervalsById[clientId]
-  if(!refs) return
-  clearInterval(refs.timerInterval)
-  clearInterval(refs.codeInterval)
-  delete totpIntervalsById[clientId]
-}
-
-function toggleNoQr(isChecked){
-  const qrInput = document.getElementById("qrFile")
-  const btnExtract = document.getElementById("btnExtractSecret")
-  const preview = document.getElementById("secretPreview")
-
-  if(isChecked){
-    if(qrInput) { qrInput.value=""; qrInput.disabled=true }
-    if(btnExtract) btnExtract.disabled=true
-    extractedSecret=null
-    if(preview) preview.innerText="Cargar sin QR activado: el cliente quedará sin TOTP."
-  }else{
-    if(qrInput) qrInput.disabled=false
-    if(btnExtract) btnExtract.disabled=false
-
-    // si estoy editando y existía un secret, lo aviso
-    if(modalMode==="edit" && existingSecret){
-      if(preview) preview.innerText="Este cliente ya tiene SECRET guardado. No hace falta volver a subir QR."
-    }else{
-      if(preview && !extractedSecret) preview.innerText=""
-    }
-  }
-}
-
-function loadClients(){
-  const container=document.getElementById("clientsContainer")
-  if(!container) return
-
-  db.ref("clients").off()
-  db.ref("clients").on("value", snap=>{
-    const data=snap.val()
-    if(!data){container.innerHTML="<p>Sin clientes</p>";return}
-
-    const rows=[]
-    Object.entries(data).forEach(([id,c])=>{
-      const visibleForRole=currentRole==="admin"?true:(c.active!==false)
-      if(!visibleForRole) return
-      if(!canSeeClientByArea(c)) return
-
-      const clientName=c.clientName||c.name||""
-      const country=c.country||""
-      const notes=c.notes||""
-      const haystack=`${clientName} ${country} ${c.email||""} ${notes}`.toLowerCase()
-      if(clientSearchTerm && !haystack.includes(clientSearchTerm)) return
-
-      rows.push({id,c,clientName,country,notes})
-    })
-
-    clientsCache=rows.reduce((acc,row)=>{acc[row.id]=row.c; return acc},{})
-
-    Object.keys(revealedTotpByClient).forEach((clientId)=>{
-      if(!isOperatorTotpVisible(clientId)){
-        delete revealedTotpByClient[clientId]
-        clearTotpInterval(clientId)
-      }
-    })
-
-    if(!rows.length){container.innerHTML="<p>No hay resultados para la búsqueda.</p>";return}
-
-    container.innerHTML=`
-      <div class="tableWrap">
-        <table class="table">
-          <thead><tr>${currentRole==="admin"?"<th><input type=\"checkbox\" onchange=\"toggleSelectAllClients(this.checked)\"></th>":""}<th>Cliente</th><th>Área</th><th>Contraseña</th><th>País</th><th>Notas</th><th>Email</th><th>Fecha carga</th><th>Estado</th><th>TOTP</th><th>Vence</th>${currentRole==="admin"?"<th>Activo</th><th>Acciones</th>":"<th>Acciones</th>"}</tr></thead>
-          <tbody>
-            ${rows.map(({id,c,clientName,country,notes})=>{
-              const created=c.createdAt?new Date(c.createdAt).toLocaleString():"Fecha desconocida"
-              return `<tr>
-                ${currentRole==="admin"?`<td><input class="clientSelectRow" data-id="${id}" type="checkbox" ${selectedClientIds[id]?"checked":""} onchange="toggleClientSelection('${id}', this.checked)"></td>`:""}
-                <td><strong>${htmlEscape(clientName||"-")}</strong></td>
-                <td>${htmlEscape(c.area||"-")}</td>
-                <td>${htmlEscape(c.password||"-")}</td>
-                <td>${htmlEscape(country||"-")}</td>
-                <td>${htmlEscape(notes||"-")}</td>
-                <td>${htmlEscape(c.email||"-")}</td>
-                <td class="small">${htmlEscape(created)}</td>
-                <td>${c.active?'<span class="badge ok">Activo</span>':'<span class="badge off">Inactivo</span>'}</td>
-                <td class="mono" id="code-${id}">${isOperatorTotpVisible(id)?"------":"Presioná Obtener"}</td>
-                <td class="small"><span id="timer-${id}">${isOperatorTotpVisible(id)?"30":"-"}</span>${isOperatorTotpVisible(id)?"s":""}</td>
-                ${currentRole==="admin"?`<td><label class="switch"><input type="checkbox" ${c.active?"checked":""} onchange="toggleClientSwitch('${id}', this.checked)"><span class="slider"></span></label></td>
-                <td><div class="inline"><button class="ghost" onclick="openClientModal('edit','${id}')">Editar</button><button class="danger" onclick="deleteClient('${id}', '${String(clientName||"").replace(/'/g,"\\'")}')">Borrar</button><button class="warn" onclick="markClientAlert('${id}','${String(clientName||"").replace(/'/g,"\\'")}')">🚨</button></div></td>`:
-                `<td><div class="inline"><button class="ghost" ${isOperatorTotpVisible(id)?"disabled":""} onclick="revealTotp('${id}','${String(clientName||"").replace(/'/g,"\\'")}')">${isOperatorTotpVisible(id)?"Obtenido":"Obtener"}</button><button class="warn" onclick="markClientAlert('${id}','${String(clientName||"").replace(/'/g,"\\'")}')">🚨 Alertar</button></div></td>`}
-              </tr>`
-            }).join("")}
-          </tbody>
-        </table>
-      </div>`
-
-    rows.forEach(({id,c})=>{ if(isOperatorTotpVisible(id)) attachTotpLive(id,c) })
-    updateBulkSelectionInfo()
-  })
-}
-
-function attachTotpLive(id,c){
-  clearTotpInterval(id)
-
-  const codeId=`code-${id}`; const timerId=`timer-${id}`
-  function updateTimer(){
-    const seconds=30-(Math.floor(Date.now()/1000)%30)
-    const el=document.getElementById(timerId)
-    if(el) el.innerText=seconds
-
-    if(currentRole!=="admin" && seconds===1){
-      setTimeout(()=>{
-        clearTotpInterval(id)
-        delete revealedTotpByClient[id]
-        const codeEl=document.getElementById(codeId)
-        const timerEl=document.getElementById(timerId)
-        if(codeEl) codeEl.innerText="Presioná Obtener"
-        if(timerEl) timerEl.innerText="-"
-        loadClients()
-      },1000)
-    }
-  }
-  async function updateCode(){const el=document.getElementById(codeId); if(!el) return; if(!c.secret){el.innerText="Sin secret"; return} el.innerText=await generateTOTP(c.secret)}
-  updateTimer(); updateCode()
-  const timerInterval=setInterval(updateTimer,1000)
-  const codeInterval=setInterval(()=>{if(Math.floor(Date.now()/1000)%30===0) updateCode()},1000)
-  totpIntervalsById[id]={timerInterval,codeInterval}
-}
-
-async function revealTotp(clientId, clientName){
-  const expiresAt=(Math.floor(Date.now()/30000)+1)*30000
-  revealedTotpByClient[clientId]={expiresAt}
-
-  const codeEl=document.getElementById(`code-${clientId}`)
-  const timerEl=document.getElementById(`timer-${clientId}`)
-  if(codeEl) codeEl.innerText="Generando..."
-  if(timerEl) timerEl.innerText="30"
-
-  const clientData=clientsCache[clientId]
-  if(clientData) attachTotpLive(clientId, clientData)
-  // si querés, podés NO llamar loadClients() acá y evitar re-render (más rápido todavía)
-  loadClients()
-
-  logActivity("totp_obtener",{clientId,clientName}).catch(()=>{})
-}
-
-function resetClientModalFields(){
-  document.getElementById("cClientName").value=""
-  document.getElementById("cPassword").value=""
-  document.getElementById("cCountry").value=""
-  document.getElementById("cEmail").value=""
-  document.getElementById("cNotes").value=""
-  const cArea=document.getElementById("cArea"); if(cArea) cArea.value=""
-  document.getElementById("qrFile").value=""
-  document.getElementById("cNoQr").checked=false
-  document.getElementById("secretPreview").innerText=""
-  extractedSecret=null
-  existingSecret=null
-
-  // re-habilitar QR por defecto
-  toggleNoQr(false)
-}
-
-function openClientModal(mode="create", clientId=null){
-  modalMode = mode
-  editingClientId = clientId
-
-  resetClientModalFields()
-
-  const titleEl = document.getElementById("modalTitle")
-  const saveBtn = document.getElementById("btnSaveClient")
-  if(titleEl) titleEl.innerText = (mode==="edit") ? "Editar cliente" : "Nuevo cliente"
-  if(saveBtn) saveBtn.innerText = (mode==="edit") ? "Guardar cambios" : "Guardar cliente"
-
-  document.getElementById("clientModal").classList.remove("hidden")
-
-  loadAreaOptions("", "")
-
-  if(mode==="edit" && clientId){
-    // cargar datos existentes
-    db.ref("clients").child(clientId).once("value").then(snap=>{
-      const c = snap.val() || {}
-      document.getElementById("cClientName").value = c.clientName || c.name || ""
-      document.getElementById("cPassword").value = c.password || ""
-      document.getElementById("cCountry").value = c.country || ""
-      document.getElementById("cEmail").value = (c.email || "").toLowerCase()
-      document.getElementById("cNotes").value = c.notes || ""
-      loadAreaOptions("", c.area || "")
-
-      // si ya tenía secret, lo guardo para no obligar a volver a cargar QR
-      existingSecret = c.secret || null
-      extractedSecret = null
-
-      if(existingSecret){
-        document.getElementById("secretPreview").innerText = "Este cliente ya tiene SECRET guardado. No hace falta volver a subir QR."
-      }else{
-        document.getElementById("secretPreview").innerText = "Este cliente no tiene SECRET. Podés cargar QR o activar 'Cargar sin QR'."
-      }
-    })
-  }
-}
-
-function closeClientModal(){
-  document.getElementById("clientModal").classList.add("hidden")
-  modalMode="create"
-  editingClientId=null
-  extractedSecret=null
-  existingSecret=null
-}
-
-async function extractSecret(){
-  const file=document.getElementById("qrFile")?.files?.[0]
-  if(!file) return alert("Seleccioná una imagen QR")
-  const reader=new FileReader()
-  reader.onload=function(e){
-    const img=new Image()
-    img.onload=function(){
-      const canvas=document.createElement("canvas"); canvas.width=img.width; canvas.height=img.height
-      const ctx=canvas.getContext("2d"); ctx.drawImage(img,0,0)
-      const imageData=ctx.getImageData(0,0,canvas.width,canvas.height)
-      const qr=jsQR(imageData.data,canvas.width,canvas.height)
-      if(!qr) return alert("No se pudo leer el QR")
-      const match=qr.data.match(/secret=([A-Z0-9]+)/i)
-      if(!match) return alert("No se encontró SECRET en el QR")
-      extractedSecret=match[1]
-      document.getElementById("secretPreview").innerText="SECRET detectado: "+extractedSecret
-    }
-    img.src=e.target.result
-  }
-  reader.readAsDataURL(file)
-}
-
-async function saveClient(){
-  const clientName=document.getElementById("cClientName").value.trim()
-  const password=document.getElementById("cPassword").value.trim()
-  const country=document.getElementById("cCountry").value.trim()
-  const email=document.getElementById("cEmail").value.trim().toLowerCase()
-  const notes=document.getElementById("cNotes").value.trim()
-  let area=(document.getElementById("cArea")?.value||"").trim().toUpperCase()
-  if(isAreaScopedAdmin()) area=normalizeAreaName(currentUser?.area||"")
-  const noQr=document.getElementById("cNoQr").checked
-
-  if(!clientName||!password||!country||!email) return alert("Completá Cliente, Contraseña, País y Email")
-
-  // secret final:
-  // - si noQr => null (sin TOTP)
-  // - si subieron QR y extrajeron => extractedSecret
-  // - si están editando y no subieron QR => mantener existingSecret
-  let finalSecret = null
-
-  if(noQr){
-    finalSecret = null
-  }else{
-    finalSecret = extractedSecret || existingSecret || null
-    if(!finalSecret){
-      return alert("Cargá QR y extraé SECRET, o activá 'Cargar sin QR'.")
-    }
-  }
-
-  const baseData = {
-    clientName,
-    name:clientName,
-    password,
-    country,
-    email,
-    notes,
-    area,
-    secret: finalSecret
-  }
-
-  if(modalMode==="edit" && editingClientId){
-    await db.ref("clients").child(editingClientId).update({
-      ...baseData,
-      updatedAt:new Date().toISOString(),
-      updatedBy:currentUser.email
-    })
-    alert("Cliente actualizado correctamente")
-  }else{
-    await db.ref("clients").push({
-      ...baseData,
-      active:true,
-      createdAt:new Date().toISOString(),
-      createdBy:currentUser.email
-    })
-    alert("Cliente creado correctamente")
-  }
-
-  closeClientModal()
-}
-
-async function toggleClientSwitch(id,checked){await db.ref("clients").child(id).update({active:checked})}
-async function deleteClient(id,name){if(!confirm(`¿Seguro que querés borrar el cliente "${name}"? Esta acción no se puede deshacer.`)) return; await db.ref("clients").child(id).remove()}
-
-async function postSlackMessage(text, threadTs=""){
-  if(SLACK_BOT_TOKEN && SLACK_CHANNEL_ID){
-    try{
-      const payload={channel:SLACK_CHANNEL_ID,text}
-      if(threadTs) payload.thread_ts=threadTs
-
-      const res=await fetch("https://slack.com/api/chat.postMessage",{
-        method:"POST",
-        headers:{"Content-Type":"application/json","Authorization":`Bearer ${SLACK_BOT_TOKEN}`},
-        body:JSON.stringify(payload)
+      await db.ref("tickets").push({
+        title, description, priority, client,
+        status: "unassigned",
+        createdAt: new Date().toISOString(),
+        createdBy: currentUser.email,
+        updatedAt: new Date().toISOString(),
+        updatedBy: currentUser.email
       })
-
-      const data=await res.json()
-      if(data.ok) return {ok:true,ts:data.ts}
-      console.warn("Slack API devolvió error:", data)
-      return {ok:false,error:data.error||"slack_api_error"}
-    }catch(err){
-      console.warn("No se pudo notificar a Slack por API:", err)
-      return {ok:false,error:String(err)}
-    }
-  }
-
-  if(SLACK_WEBHOOK_URL){
-    try{
-      await fetch(SLACK_WEBHOOK_URL,{method:"POST",mode:"no-cors",body:JSON.stringify({text})})
-      return {ok:true,ts:null}
-    }catch(err){
-      console.warn("No se pudo notificar a Slack por webhook:", err)
-      return {ok:false,error:String(err)}
-    }
-  }
-
-  return {ok:false,error:"no_slack_config"}
-}
-
-async function markClientAlert(clientId, clientName){
-  const msg=prompt(`Describe el problema para ${clientName}:`, "Dato incorrecto")
-  if(msg===null) return
-
-  const alertData={
-    clientId,
-    clientName,
-    message:(msg||"Sin detalle").trim(),
-    reportedBy:currentUser?.email||"desconocido",
-    status:"open",
-    createdAt:new Date().toISOString()
-  }
-
-  const newAlertRef=db.ref("client_alerts").push()
-  await newAlertRef.set(alertData)
-  alert("Alerta enviada")
-
-  const openText=`🚨 *Alerta de cliente*\nCliente: ${alertData.clientName}\nReportado por: ${alertData.reportedBy}\nDetalle: ${alertData.message}`
-  const openSlackResult=await postSlackMessage(openText)
-
-  if(openSlackResult.ok && openSlackResult.ts){
-    await newAlertRef.update({slackThreadTs:openSlackResult.ts,slackChannelId:SLACK_CHANNEL_ID||null})
-  }
-
-  if(!openSlackResult.ok){
-    alert("La alerta se guardó, pero Slack no pudo enviarse desde el navegador. Si persiste, hay que hacerlo vía backend.")
-  }
-}
-
-function loadOperatorAlerts(){
-  const container=document.getElementById("operatorAlerts")
-  if(!container) return
-
-  db.ref("client_alerts").off()
-  db.ref("client_alerts").on("value", snap=>{
-    const items=Object.entries(snap.val()||{}).filter(([,a])=>a.status!=='resolved').sort((a,b)=>new Date(b[1].createdAt||0)-new Date(a[1].createdAt||0))
-    if(!items.length){container.innerHTML="<p class='small'>Sin alertas abiertas.</p>"; return}
-
-    container.innerHTML=`<div class="tableWrap"><table class="table" style="min-width:760px"><thead><tr><th>Cliente</th><th>Detalle</th><th>Reportado por</th><th>Fecha</th><th>Estado</th><th>Acción</th></tr></thead><tbody>
-      ${items.map(([id,a])=>`<tr><td>${htmlEscape(a.clientName||"-")}</td><td>${htmlEscape(a.message||"-")}</td><td>${htmlEscape(a.reportedBy||"-")}</td><td>${a.createdAt?new Date(a.createdAt).toLocaleString():"-"}</td><td><span class="badge warn">Abierta</span></td><td><button class="ghost" onclick="resolveAlert('${id}')">Marcar resuelta</button></td></tr>`).join("")}
-    </tbody></table></div>`
-  })
-}
-
-async function resolveAlert(id){
-  const alertRef=db.ref("client_alerts").child(id)
-  const snap=await alertRef.once("value")
-  const alertData=snap.val()||{}
-  const resolvedAt=new Date().toISOString()
-
-  await alertRef.update({status:"resolved",resolvedAt,resolvedBy:currentUser.email})
-
-  const resolvedText=`✅ *Problema resuelto*\nCliente: ${alertData.clientName||"-"}\nAlerta original de: ${alertData.reportedBy||"desconocido"}\nResuelto por: ${currentUser.email}`
-  const resolvedSlackResult=await postSlackMessage(resolvedText, alertData.slackThreadTs||"")
-
-  if(!resolvedSlackResult.ok){
-    console.warn("No se pudo avisar resolución en Slack:", resolvedSlackResult.error)
-  }
-}
-
-async function saveUserAccess(){
-  const email=document.getElementById("uEmail").value.trim().toLowerCase()
-  const password=document.getElementById("uPassword").value.trim()
-  const role=document.getElementById("uRole").value
-  let area=(document.getElementById("uArea")?.value||"").trim().toUpperCase()
-  if(isAreaScopedAdmin()) area=normalizeAreaName(currentUser?.area||"")
-
-  if(!email||!password) return alert("Completá email y contraseña")
-
-  await db.ref("users_by_email").child(emailKey(email)).set({
-    email,
-    password,
-    role,
-    area,
-    active:true,
-    createdAt:new Date().toISOString(),
-    createdBy:currentUser.email
-  })
-
-  alert("Usuario creado correctamente")
-}
-
-
-
-function loadUsersAdmin(){
-  const container=document.getElementById("usersList")
-  if(!container) return
-
-  db.ref("users_by_email").off()
-  db.ref("users_by_email").on("value", snap=>{
-  const items=Object.entries(snap.val()||{}).filter(([,u])=>{
-  const isSuper = (u.email||"").toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()
-  const isSelf  = (u.email||"").toLowerCase() === (currentUser.email||"").toLowerCase()
-  const passesSuper=!isSuper || isSelf
-  const passesArea = canAdminSeeArea(u.area||"")
-  return passesSuper && passesArea
-})
-    if(!items.length){container.innerHTML="Sin usuarios cargados"; return}
-
-    const totalPages=Math.max(1, Math.ceil(items.length/USERS_PER_PAGE))
-    if(usersPage>totalPages) usersPage=totalPages
-    if(usersPage<1) usersPage=1
-
-    const start=(usersPage-1)*USERS_PER_PAGE
-    const pageItems=items.slice(start, start+USERS_PER_PAGE)
-
-    const cards=pageItems.map(([k,u])=>{
-      const isSelf=u.email?.toLowerCase()===currentUser.email?.toLowerCase()
-      return `<div class="card" style="padding:10px;margin:6px 0"><div class="inline" style="justify-content:space-between"><div><strong>${htmlEscape(u.email||"-")}</strong><br><span class="small">Rol: ${htmlEscape(u.role||"-")} · Área: ${htmlEscape(u.area||"Sin área")} · Clave: Oculta</span></div><div class="inline"><button class="ghost" onclick="changeUserPassword('${k}')">Cambiar clave</button><button class="ghost" onclick="changeUserArea('${k}')">Cambiar área</button><button class="danger" ${isSelf?"disabled":""} onclick="deleteUserAccess('${k}','${u.email||''}')">Eliminar</button></div></div></div>`
-    }).join("")
-
-    const pager=`<div class="inline" style="justify-content:flex-end;margin-top:6px"><button class="ghost" ${usersPage<=1?"disabled":""} onclick="usersPage--;loadUsersAdmin()">Anterior</button><span class="small">Página ${usersPage} de ${totalPages}</span><button class="ghost" ${usersPage>=totalPages?"disabled":""} onclick="usersPage++;loadUsersAdmin()">Siguiente</button></div>`
-
-    container.innerHTML=cards + pager
-  })
-}
-
-async function changeUserArea(key){
-  const snap=await db.ref("users_by_email").child(key).once("value")
-  const user=snap.val()||{}
-  editingUserKeyForArea=key
-
-  const label=document.getElementById("userAreaModalLabel")
-  if(label) label.innerText=`Usuario: ${user.email||"-"}`
-
-  await loadAreaOptions(user.area||"", "")
-  fillAreaSelect("userAreaModalSelect", await getAreaNames(), user.area||"")
-
-  document.getElementById("userAreaModal").classList.remove("hidden")
-}
-
-function closeUserAreaModal(){
-  editingUserKeyForArea=null
-  document.getElementById("userAreaModal").classList.add("hidden")
-}
-
-async function saveUserAreaFromModal(){
-  if(!editingUserKeyForArea) return
-  const next=normalizeAreaName(document.getElementById("userAreaModalSelect")?.value||"")
-  await db.ref("users_by_email").child(editingUserKeyForArea).update({area:next,updatedAt:new Date().toISOString(),updatedBy:currentUser.email})
-  closeUserAreaModal()
-  alert("Área actualizada")
-}
-
-async function changeUserPassword(key){
-  const email=(await db.ref("users_by_email").child(key).once("value")).val()?.email||"usuario"
-  const next=prompt(`Nueva contraseña para ${email}:`,"")
-  if(next===null) return
-  if(!next.trim()) return alert("La contraseña no puede quedar vacía")
-  await db.ref("users_by_email").child(key).update({password:next.trim(),updatedAt:new Date().toISOString(),updatedBy:currentUser.email})
-  alert("Contraseña actualizada")
-}
-
-async function deleteUserAccess(key,email){if(!confirm(`¿Eliminar acceso para ${email}?`)) return; await db.ref("users_by_email").child(key).remove()}
-
-function loadOperatorsLastAccess(){
-  const container=document.getElementById("operatorsLastAccess")
-  if(!container) return
-
-  db.ref("users_by_email").on("value", snap=>{
-    const users=Object.values(snap.val()||{}).filter(u=>u.role==="operator" && canAdminSeeArea(u.area||""))
-    if(!users.length){container.innerHTML="<p class='small'>No hay operadores registrados.</p>"; return}
-    container.innerHTML=`<div class="tableWrap"><table class="table" style="min-width:500px"><thead><tr><th>Email</th><th>Último acceso</th></tr></thead><tbody>${users.map(u=>`<tr><td>${htmlEscape(u.email||"-")}</td><td>${u.lastAccessAt?new Date(u.lastAccessAt).toLocaleString():"Sin acceso aún"}</td></tr>`).join("")}</tbody></table></div>`
-  })
-}
-
-function formatWhen(iso){
-  if(!iso) return ""
-  try{
-    const d=new Date(iso)
-    return d.toLocaleString()
-  }catch(_){ return iso }
-}
-
-function jsonp(url){
-  return new Promise((resolve,reject)=>{
-    const cb="cb_"+Math.random().toString(36).slice(2)
-    const s=document.createElement("script")
-    const timeout=setTimeout(()=>{
-      cleanup()
-      reject(new Error("JSONP timeout"))
-    },8000)
-
-    function cleanup(){
-      clearTimeout(timeout)
-      delete window[cb]
-      if(s.parentNode) s.parentNode.removeChild(s)
+      logActivity("ticket_creado", { title, client })
+      closeTicketModal()
     }
 
-    window[cb]=(data)=>{ cleanup(); resolve(data) }
+    function loadTickets(){
+      const container = document.getElementById("boardContainer")
+      if(!container) return
 
-    s.src = url + (url.includes("?") ? "&" : "?") + "callback=" + cb
-    s.onerror=()=>{ cleanup(); reject(new Error("JSONP error")) }
-    document.body.appendChild(s)
-  })
-}
+      db.ref("tickets").off()
+      db.ref("tickets").on("value", snap => {
+        const data = snap.val() || {}
+        const grouped = { unassigned: [], todo: [], doing: [], recurrent: [], done: [] }
 
-async function loadDashboard(){
-  if(currentRole!=="admin") return
+        Object.entries(data).forEach(([id, t]) => {
+          const haystack = `${t.title||""} ${t.description||""} ${t.client||""}`.toLowerCase()
+          if(ticketSearchTerm && !haystack.includes(ticketSearchTerm)) return
 
-  // KPIs: clientes
-  try{
-    const clientsSnap = await db.ref("clients").once("value")
-    const clients = clientsSnap.val() || {}
-    const total = Object.keys(clients).length
-    let active=0, inactive=0
-    Object.values(clients).forEach(c=>{
-      if(c && c.active===false) inactive++
-      else active++
-    })
-    const el = document.getElementById("kpiTotalClients")
-if(el) el.innerText = total
-    const elA = document.getElementById("kpiActiveClients")
-if(elA) elA.innerText = active
-const elI = document.getElementById("kpiInactiveClients")
-if(elI) elI.innerText = inactive
+          const status = grouped[t.status] ? t.status : "unassigned"
+          grouped[status].push({ id, ...t })
+        })
 
-  }catch(_){}
-
-  // KPIs: alertas abiertas
-  try{
-    const alertsSnap = await db.ref("client_alerts").once("value")
-    const alerts = alertsSnap.val() || {}
-    const open = Object.values(alerts).filter(a=>a && a.status!=="resolved").length
-    const elOpen = document.getElementById("kpiOpenAlerts")
-if(elOpen) elOpen.innerText = open
-  }catch(_){}
-
-  // KPIs: operadores + último acceso
-try{
-  const usersSnap = await db.ref("users_by_email").once("value")
-  const users = Object.values(usersSnap.val() || {})
-  const ops = users.filter(u=>u && u.role==="operator")
-
-  const elOps = document.getElementById("kpiOperators")
-  if(elOps) elOps.innerText = ops.length
-
-  const last = ops
-    .map(u=>u.lastAccessAt ? new Date(u.lastAccessAt).getTime() : 0)
-    .sort((a,b)=>b-a)[0] || 0
-
-  const elLast = document.getElementById("kpiLastAccess")
-  if(elLast) elLast.innerText = last ? new Date(last).toLocaleString() : "Sin accesos"
-}catch(_){}
-
-  // Actividad reciente desde Sheets (JSONP)
-  const container = document.getElementById("recentActivity")
-  if(container) container.innerHTML = `<p class="small">Cargando actividad…</p>`
-
-  try{
-    const url = `${SHEETS_WEBHOOK_URL}?action=recent&limit=10`
-    const res = await jsonp(url)
-    const items = (res && res.ok && Array.isArray(res.items)) ? res.items : []
-
-    if(!items.length){
-      container.innerHTML = `<p class="small">Sin actividad reciente.</p>`
-      return
-    }
-
-    container.innerHTML = items.map(it=>{
-      const who = it.email || "sin-usuario"
-      const when = it.timestampIso ? formatWhen(it.timestampIso) : (it.timestampLocal || "")
-      const extra = it.clientName ? ` · ${htmlEscape(it.clientName)}` : ""
-      return `
-        <div class="feedItem">
-          <div class="feedTop">
-            <div>
-              <div class="feedType">${htmlEscape(it.eventType || "evento")}${extra}</div>
-              <div class="feedMeta">${htmlEscape(who)} · ${htmlEscape(when)}</div>
-            </div>
-            <span class="badge ${it.role==="admin"?"ok":"warn"}">${htmlEscape(it.role||"-")}</span>
+        container.innerHTML = `<div class="board">${Object.entries(STATUS).map(([status, label]) => `
+          <div class="column">
+            <h4>${label} <span class="small">(${grouped[status].length})</span></h4>
+            ${grouped[status].map(t => `
+              <div class="ticket">
+                <h5>${htmlEscape(t.title||"-")}</h5>
+                <p>${htmlEscape(t.description||"-")}</p>
+                <div class="meta">Cliente/Área: ${htmlEscape(t.client||"-")}</div>
+                <div class="meta">Prioridad: ${htmlEscape(t.priority||"Media")}</div>
+                <div class="meta">Creado por ${htmlEscape(t.createdBy||"-")} · ${t.createdAt?new Date(t.createdAt).toLocaleString():"-"}</div>
+                ${renderTicketActions(t.id, status)}
+              </div>
+            `).join("") || `<p class="small">Sin tickets</p>`}
           </div>
+        `).join("")}</div>`
+      })
+    }
+
+    function renderTicketActions(id, currentStatus){
+      const options = Object.entries(STATUS)
+        .filter(([key]) => key !== currentStatus)
+        .map(([key, label]) => `<option value="${key}">${label}</option>`)
+        .join("")
+
+      const canDelete = currentRole === "consultoria"
+
+      return `
+        <div class="inline" style="margin-top:8px">
+          <select id="next-${id}" style="margin:0;min-width:160px">
+            ${options}
+          </select>
+          <button class="ghost" onclick="moveTicket('${id}')">Mover</button>
+          ${canDelete?`<button class="danger" onclick="deleteTicket('${id}')">Borrar</button>`:""}
         </div>
       `
-    }).join("")
-  }catch(err){
-    console.warn("No se pudo leer actividad reciente:", err)
-    if(container) container.innerHTML = `<p class="small">No se pudo cargar la actividad reciente.</p>`
-  }
-}
- 
-  
-async function init(){
-  renderLogin()
-
-  if(!initFirebase()){
-    const app=document.getElementById("app")
-    if(app){
-      app.innerHTML=`
-        <div class="card" style="max-width:560px;margin:40px auto">
-          <h2 style="margin-top:0">No se pudo iniciar la app</h2>
-          <p class="small">No cargó Firebase. Revisá conexión, extensiones de bloqueo o configuración del navegador.</p>
-        </div>`
     }
-    return
-  }
 
-  await ensureSuperAdmin()
-}
-init()
-</script>
+    async function moveTicket(id){
+      const next = document.getElementById(`next-${id}`)?.value
+      if(!next) return
+
+      await db.ref("tickets").child(id).update({
+        status: next,
+        updatedAt: new Date().toISOString(),
+        updatedBy: currentUser.email
+      })
+      logActivity("ticket_movido", { ticketId: id, nextStatus: next })
+    }
+
+    async function deleteTicket(id){
+      if(!confirm("¿Seguro que querés borrar este ticket?")) return
+      await db.ref("tickets").child(id).remove()
+      logActivity("ticket_borrado", { ticketId: id })
+    }
+
+    async function saveUserAccess(){
+      const email = document.getElementById("uEmail").value.trim().toLowerCase()
+      const password = document.getElementById("uPassword").value.trim()
+      const role = document.getElementById("uRole").value
+      if(!email || !password) return alert("Completá email y contraseña")
+
+      await db.ref("users_by_email").child(emailKey(email)).set({
+        email, password, role, active: true,
+        createdAt: new Date().toISOString(), createdBy: currentUser.email
+      })
+      alert("Usuario creado correctamente")
+    }
+
+    function loadUsersAdmin(){
+      const container = document.getElementById("usersList")
+      if(!container) return
+
+      db.ref("users_by_email").off()
+      db.ref("users_by_email").on("value", snap => {
+        const items = Object.entries(snap.val() || {})
+        if(!items.length){ container.innerHTML = "Sin usuarios cargados"; return }
+
+        container.innerHTML = items.map(([k,u]) => {
+          const isSelf = (u.email||"").toLowerCase() === (currentUser.email||"").toLowerCase()
+          return `<div class="card" style="padding:10px;margin:6px 0"><div class="inline" style="justify-content:space-between"><div><strong>${htmlEscape(u.email||"-")}</strong><br><span class="small">Rol: ${htmlEscape(u.role||"-")} · Clave: Oculta</span></div><div class="inline"><button class="danger" ${isSelf?"disabled":""} onclick="deleteUserAccess('${k}','${u.email||''}')">Eliminar</button></div></div></div>`
+        }).join("")
+      })
+    }
+
+    async function deleteUserAccess(key,email){
+      if(!confirm(`¿Eliminar acceso para ${email}?`)) return
+      await db.ref("users_by_email").child(key).remove()
+    }
+
+    async function loadDashboard(){
+      try{
+        const tickets = (await db.ref("tickets").once("value")).val() || {}
+        const users = Object.values((await db.ref("users_by_email").once("value")).val() || {})
+        const activity = Object.values((await db.ref("activity_logs").limitToLast(10).once("value")).val() || {})
+
+        let total = 0, unassigned = 0, doing = 0, done = 0
+        Object.values(tickets).forEach(t => {
+          total++
+          if(t.status === "unassigned") unassigned++
+          if(t.status === "doing") doing++
+          if(t.status === "done") done++
+        })
+
+        const ops = users.filter(u => u && u.role === "operator")
+        const last = ops.map(u => u.lastAccessAt ? new Date(u.lastAccessAt).getTime() : 0).sort((a,b)=>b-a)[0] || 0
+
+        document.getElementById("kpiTotal").innerText = total
+        document.getElementById("kpiUnassigned").innerText = unassigned
+        document.getElementById("kpiDoing").innerText = doing
+        document.getElementById("kpiDone").innerText = done
+        document.getElementById("kpiOperators").innerText = ops.length
+        document.getElementById("kpiLastAccess").innerText = last ? new Date(last).toLocaleString() : "Sin accesos"
+
+        const container = document.getElementById("recentActivity")
+        const sorted = activity.sort((a,b)=>new Date(b.timestampIso||0)-new Date(a.timestampIso||0))
+        if(!sorted.length){
+          container.innerHTML = `<p class="small">Sin actividad reciente.</p>`
+        }else{
+          container.innerHTML = sorted.map(it => `
+            <div class="feedItem">
+              <div class="feedTop">
+                <div>
+                  <div class="feedType">${htmlEscape(it.eventType || "evento")}</div>
+                  <div class="feedMeta">${htmlEscape(it.email || "sin-usuario")} · ${it.timestampIso ? new Date(it.timestampIso).toLocaleString() : ""}</div>
+                </div>
+                <span class="badge ${it.role === "consultoria" ? "ok" : "off"}">${htmlEscape(it.role || "-")}</span>
+              </div>
+            </div>
+          `).join("")
+        }
+      }catch(_){ }
+    }
+
+    async function init(){
+      renderLogin()
+      await ensureConsultoria()
+    }
+
+    init()
+  </script>
 </body>
 </html>
