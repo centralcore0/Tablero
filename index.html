@@ -122,8 +122,63 @@
       done: "Finalizadas"
     }
 
+    const SHEET_ID = "1tNNtG2Asr1ds1_-3P6PmVgsHbdlhhfrV7GhWJDiTO1Q"
+    const SHEET_GID = "0"
+    // Reemplazar por tu URL de Web App de Apps Script para habilitar escritura en la hoja.
+    // Debe aceptar JSON { action, payload } para createTicket/updateTicket/deleteTicket.
+    const SHEET_WEBHOOK_URL = ""
+    let cachedTickets = []
+
     function emailKey(email){ return (email||"").toLowerCase().replace(/[.#$/\[\]]/g, "_") }
     function htmlEscape(v){ return String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;") }
+    function generateId(){ return (crypto?.randomUUID?.() || `tk_${Date.now()}_${Math.random().toString(36).slice(2,8)}`) }
+    function parseGvizJson(text){
+      const raw = text.replace(/^\/\/O_o\s*\n/, "")
+      const start = raw.indexOf("{")
+      const end = raw.lastIndexOf("}")
+      return JSON.parse(raw.slice(start, end + 1))
+    }
+
+    async function fetchTicketsFromSheet(){
+      const query = encodeURIComponent("select A,B,C,D,E,F,G,H,I,J,K,L")
+      const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${SHEET_GID}&tq=${query}`
+      const res = await fetch(url)
+      if(!res.ok) throw new Error("No se pudo leer la planilla")
+      const gviz = parseGvizJson(await res.text())
+      const rows = gviz?.table?.rows || []
+
+      return rows
+        .map(r => (r.c || []).map(c => c?.v ?? ""))
+        .filter(cols => (cols[0]||"").toString().trim())
+        .map(cols => ({
+          id: String(cols[0]||""),
+          title: String(cols[1]||""),
+          description: String(cols[2]||""),
+          priority: String(cols[3]||"Media"),
+          client: String(cols[4]||""),
+          status: String(cols[5]||"unassigned"),
+          assignedTo: String(cols[6]||""),
+          comments: (() => { try{ return JSON.parse(cols[7]||"{}") }catch(_){ return {} } })(),
+          createdAt: String(cols[8]||""),
+          createdBy: String(cols[9]||""),
+          updatedAt: String(cols[10]||""),
+          updatedBy: String(cols[11]||"")
+        }))
+    }
+
+    async function sheetWrite(action, payload){
+      if(!SHEET_WEBHOOK_URL){
+        alert("Falta configurar SHEET_WEBHOOK_URL para guardar cambios en Google Sheets")
+        throw new Error("SHEET_WEBHOOK_URL no configurada")
+      }
+      const res = await fetch(SHEET_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, payload, sheetId: SHEET_ID, gid: SHEET_GID })
+      })
+      if(!res.ok) throw new Error("No se pudo escribir en Google Sheets")
+      return res.json().catch(()=>({ ok:true }))
+    }
 
     async function logActivity(eventType, details={}){
       try{
@@ -281,47 +336,98 @@
 
       if(!title || !description || !client) return alert("Completá título, detalle y cliente/área")
 
-      await db.ref("tickets").push({
+      const now = new Date().toISOString()
+      const ticket = {
+        id: generateId(),
         title, description, priority, client,
         status: "unassigned",
         assignedTo: "",
         comments: {},
-        createdAt: new Date().toISOString(),
+        createdAt: now,
         createdBy: currentUser.email,
-        updatedAt: new Date().toISOString(),
+        updatedAt: now,
         updatedBy: currentUser.email
-      })
+      }
+
+      await sheetWrite("createTicket", ticket)
       logActivity("ticket_creado", { title, client })
       closeTicketModal()
+      await loadTickets()
+      await loadDashboard()
     }
 
-    function loadTickets(){
+    async function loadTickets(){
       const container = document.getElementById("boardContainer")
       if(!container) return
 
-      db.ref("tickets").off()
-      db.ref("tickets").on("value", snap => {
-        const data = snap.val() || {}
-        const grouped = { unassigned: [], todo: [], doing: [], recurrent: [], done: [] }
+      const data = await fetchTicketsFromSheet()
+      cachedTickets = data
+      const grouped = { unassigned: [], todo: [], doing: [], recurrent: [], done: [] }
 
-        Object.entries(data).forEach(([id, t]) => {
-          const canSeeTicket = currentRole === "admin" || currentRole === "analista" || (currentRole === "consultor" && (t.createdBy||"") === currentUser.email)
-          if(!canSeeTicket) return
+      Object.entries(data).forEach(([_, t]) => {
+        const canSeeTicket = currentRole === "admin" || currentRole === "analista" || (currentRole === "consultor" && (t.createdBy||"") === currentUser.email)
+        if(!canSeeTicket) return
 
-          const haystack = `${t.title||""} ${t.description||""} ${t.client||""}`.toLowerCase()
-          if(ticketSearchTerm && !haystack.includes(ticketSearchTerm)) return
+        const haystack = `${t.title||""} ${t.description||""} ${t.client||""}`.toLowerCase()
+        if(ticketSearchTerm && !haystack.includes(ticketSearchTerm)) return
 
-          const status = grouped[t.status] ? t.status : "unassigned"
-          grouped[status].push({ id, ...t })
-        })
-
-        container.innerHTML = `<div class="board">${Object.entries(STATUS).map(([status, label]) => `
-          <div class="column">
-            <h4>${label} <span class="small">(${grouped[status].length})</span></h4>
-            ${grouped[status].map(t => renderTicketCard(t, status)).join("") || `<p class="small">Sin tickets</p>`}
-          </div>
-        `).join("")}</div>`
+        const status = grouped[t.status] ? t.status : "unassigned"
+        grouped[status].push(t)
       })
+
+      container.innerHTML = `<div class="board">${Object.entries(STATUS).map(([status, label]) => `
+        <div class="column">
+          <h4>${label} <span class="small">(${grouped[status].length})</span></h4>
+          ${grouped[status].map(t => renderTicketCard(t, status)).join("") || `<p class="small">Sin tickets</p>`}
+        </div>
+      `).join("")}</div>`
+    }
+
+    function renderTicketCard(ticket, status){
+      if(currentRole === "consultor"){
+        return `
+          <div class="ticket">
+            <h5>${htmlEscape(ticket.title||"-")}</h5>
+            <div class="meta">Asignado a: ${htmlEscape(ticket.assignedTo||"Sin asignar")}</div>
+            <button class="ghost" style="margin-top:8px" onclick="openTicketDetailModal('${ticket.id}')">Ver detalle</button>
+          </div>
+        `
+      }
+
+      return `
+        <div class="ticket">
+          <h5>${htmlEscape(ticket.title||"-")}</h5>
+          <p>${htmlEscape(ticket.description||"-")}</p>
+          <div class="meta">Cliente/Área: ${htmlEscape(ticket.client||"-")}</div>
+          <div class="meta">Prioridad: ${htmlEscape(ticket.priority||"Media")}</div>
+          <div class="meta">Creado por ${htmlEscape(ticket.createdBy||"-")} · ${ticket.createdAt?new Date(ticket.createdAt).toLocaleString():"-"}</div>
+          <div class="meta">Asignado a: ${htmlEscape(ticket.assignedTo||"Sin asignar")}</div>
+          ${renderTicketActions(ticket.id, status)}
+          ${renderComments(ticket.id, ticket.comments || {})}
+        </div>
+      `
+    }
+
+    async function openTicketDetailModal(id){
+      const ticket = cachedTickets.find(t => t.id === id)
+      if(!ticket) return alert("No se encontró el ticket")
+
+      document.getElementById("ticketDetailContent").innerHTML = `
+        <div class="row">
+          <div><label>Título</label><input value="${htmlEscape(ticket.title||"")}" disabled></div>
+          <div><label>Prioridad</label><input value="${htmlEscape(ticket.priority||"Media")}" disabled></div>
+        </div>
+        <div><label>Detalle</label><textarea disabled>${htmlEscape(ticket.description||"")}</textarea></div>
+        <div><label>Cliente/Área</label><input value="${htmlEscape(ticket.client||"")}" disabled></div>
+        <div><label>Asignado a</label><input value="${htmlEscape(ticket.assignedTo||"Sin asignar")}" disabled></div>
+        ${renderComments(id, ticket.comments || {})}
+      `
+      document.getElementById("ticketDetailModal").classList.remove("hidden")
+    }
+
+    function closeTicketDetailModal(){
+      document.getElementById("ticketDetailModal").classList.add("hidden")
+      document.getElementById("ticketDetailContent").innerHTML = ""
     }
 
     function renderTicketCard(ticket, status){
@@ -423,12 +529,13 @@
       const next = document.getElementById(`next-${id}`)?.value
       if(!next) return
 
-      await db.ref("tickets").child(id).update({
-        status: next,
-        updatedAt: new Date().toISOString(),
-        updatedBy: currentUser.email
-      })
+      const ticket = cachedTickets.find(t => t.id === id)
+      if(!ticket) return
+      const updated = { ...ticket, status: next, updatedAt: new Date().toISOString(), updatedBy: currentUser.email }
+      await sheetWrite("updateTicket", updated)
       logActivity("ticket_movido", { ticketId: id, nextStatus: next })
+      await loadTickets()
+      await loadDashboard()
     }
 
     async function assignTicket(id){
@@ -439,31 +546,39 @@
       const user = (await db.ref("users_by_email").child(emailKey(assignedTo)).once("value")).val()
       if(!user || user.role !== "analista") return alert("El usuario no existe o no es analista")
 
-      await db.ref("tickets").child(id).update({
-        assignedTo,
-        updatedAt: new Date().toISOString(),
-        updatedBy: currentUser.email
-      })
+      const ticket = cachedTickets.find(t => t.id === id)
+      if(!ticket) return
+      const updated = { ...ticket, assignedTo, updatedAt: new Date().toISOString(), updatedBy: currentUser.email }
+      await sheetWrite("updateTicket", updated)
       logActivity("ticket_asignado", { ticketId: id, assignedTo })
+      await loadTickets()
     }
 
     async function addComment(id){
       const message = (document.getElementById(`comment-${id}`)?.value || "").trim()
       if(!message) return
 
-      await db.ref("tickets").child(id).child("comments").push({
-        message,
-        author: currentUser.email,
-        createdAt: new Date().toISOString()
-      })
-      document.getElementById(`comment-${id}`).value = ""
+      const ticket = cachedTickets.find(t => t.id === id)
+      if(!ticket) return
+      const comments = { ...(ticket.comments || {}) }
+      comments[generateId()] = { message, author: currentUser.email, createdAt: new Date().toISOString() }
+      const updated = { ...ticket, comments, updatedAt: new Date().toISOString(), updatedBy: currentUser.email }
+
+      await sheetWrite("updateTicket", updated)
+      const input = document.getElementById(`comment-${id}`)
+      if(input) input.value = ""
       logActivity("ticket_comentario", { ticketId: id })
+      await loadTickets()
+      const detailOpen = !document.getElementById("ticketDetailModal").classList.contains("hidden")
+      if(detailOpen) openTicketDetailModal(id)
     }
 
     async function deleteTicket(id){
       if(!confirm("¿Seguro que querés borrar este ticket?")) return
-      await db.ref("tickets").child(id).remove()
+      await sheetWrite("deleteTicket", { id })
       logActivity("ticket_borrado", { ticketId: id })
+      await loadTickets()
+      await loadDashboard()
     }
 
     async function saveUserAccess(){
@@ -504,12 +619,12 @@
 
     async function loadDashboard(){
       try{
-        const tickets = (await db.ref("tickets").once("value")).val() || {}
+        const ticketsArr = await fetchTicketsFromSheet()
         const users = Object.values((await db.ref("users_by_email").once("value")).val() || {})
         const activity = Object.values((await db.ref("activity_logs").limitToLast(10).once("value")).val() || {})
 
         let total = 0, unassigned = 0, doing = 0, done = 0
-        Object.values(tickets).forEach(t => {
+        ticketsArr.forEach(t => {
           total++
           if(t.status === "unassigned") unassigned++
           if(t.status === "doing") doing++
