@@ -57,6 +57,9 @@
     .modalBack{position:fixed;inset:0;background:rgba(2,6,23,.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:16px;z-index:99}
     .modal{width:min(760px,100%);max-height:90vh;overflow:auto}
     .hidden{display:none!important}
+    .toast{position:fixed;right:16px;bottom:16px;z-index:120;min-width:260px;max-width:420px;padding:10px 12px;border-radius:10px;border:1px solid var(--stroke);background:rgba(15,23,42,.95);box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:13px}
+    .toast.ok{border-color:rgba(22,163,74,.65)}
+    .toast.error{border-color:rgba(220,38,38,.65)}
   </style>
 </head>
 <body>
@@ -74,7 +77,10 @@
         <div><label>Prioridad</label><select id="tPriority"><option value="Baja">Baja</option><option value="Media">Media</option><option value="Alta">Alta</option></select></div>
       </div>
       <div><label>Detalle</label><textarea id="tDescription"></textarea></div>
-      <div><label>Cliente/Área</label><input id="tClient" /></div>
+      <div class="row">
+        <div><label>Cliente/Área</label><input id="tClient" /></div>
+        <div><label>Deadline</label><input id="tDeadline" type="date" /></div>
+      </div>
 
       <div class="inline" style="justify-content:flex-end">
         <button onclick="saveTicket()">Crear ticket</button>
@@ -114,6 +120,8 @@
     let currentUser = null
     let currentRole = null
     let ticketSearchTerm = ""
+    let ticketFilterConsultor = ""
+    let ticketFilterClient = ""
 
     const STATUS = {
       unassigned: "Pendientes de asignar",
@@ -127,7 +135,7 @@
     const SHEET_GID = "0"
     // Reemplazar por tu URL de Web App de Apps Script para habilitar escritura en la hoja.
     // Debe aceptar JSON { action, payload } para createTicket/updateTicket/deleteTicket.
-    const SHEET_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycby24CoY6Y2v9PB6cPhprd0H38Uwv5XTE-Ln8UD1TnO9Jt4t3lC6IqDLUjeklm_jVYqHAw/exec"
+    const SHEET_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbyRLv3IqWF7O-045AsuEQzqOn2FstgF8X3TfBXQB6eSLJr44u6nm3QUQH_mtBaSjVYUhw/exec"
     let cachedTickets = []
 
     function emailKey(email){ return (email||"").toLowerCase().replace(/[.#$/\[\]]/g, "_") }
@@ -140,8 +148,30 @@
       return JSON.parse(raw.slice(start, end + 1))
     }
 
+
+    function showToast(message, type="info", keepMs=2200){
+      const old = document.getElementById("globalToast")
+      if(old) old.remove()
+      const el = document.createElement("div")
+      el.id = "globalToast"
+      el.className = `toast ${type}`
+      el.textContent = message
+      document.body.appendChild(el)
+      setTimeout(()=>{ if(el.parentNode) el.remove() }, keepMs)
+    }
+
+    function buildTicketCode(list){
+      const max = (list||[]).reduce((acc, t) => {
+        const m = String(t.id||"").match(/^TAO-(\d+)$/)
+        if(!m) return acc
+        return Math.max(acc, Number(m[1]))
+      }, 0)
+      const next = max + 1
+      return `TAO-${String(next).padStart(2,"0")}`
+    }
+
     async function fetchTicketsFromSheet(){
-      const query = encodeURIComponent("select A,B,C,D,E,F,G,H,I,J,K,L")
+      const query = encodeURIComponent("select A,B,C,D,E,F,G,H,I,J,K,L,M")
       const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${SHEET_GID}&tq=${query}`
       const res = await fetch(url)
       if(!res.ok) throw new Error("No se pudo leer la planilla")
@@ -163,7 +193,8 @@
           createdAt: String(cols[8]||""),
           createdBy: String(cols[9]||""),
           updatedAt: String(cols[10]||""),
-          updatedBy: String(cols[11]||"")
+          updatedBy: String(cols[11]||""),
+          deadline: String(cols[12]||"")
         }))
     }
 
@@ -314,7 +345,11 @@
             <h3 style="margin:0">Tickets</h3>
             <span class="small">Vista Kanban de operación</span>
           </div>
-          <div class="searchWrap"><input oninput="updateTicketSearch(this.value)" placeholder="Buscar por título, cliente o descripción"></div>
+          <div class="row">
+            <div class="searchWrap"><input oninput="updateTicketSearch(this.value)" placeholder="Buscar por título, cliente o descripción"></div>
+            <div><input oninput="updateConsultorFilter(this.value)" placeholder="Filtrar por consultor (email)"></div>
+            <div><input oninput="updateClientFilter(this.value)" placeholder="Filtrar por cliente"></div>
+          </div>
         </div>
 
         <div class="card"><div class="boardWrap"><div id="boardContainer"></div></div></div>
@@ -326,6 +361,8 @@
     }
 
     function updateTicketSearch(value){ ticketSearchTerm = (value||"").trim().toLowerCase(); loadTickets() }
+    function updateConsultorFilter(value){ ticketFilterConsultor = (value||"").trim().toLowerCase(); loadTickets() }
+    function updateClientFilter(value){ ticketFilterClient = (value||"").trim().toLowerCase(); loadTickets() }
 
     function openTicketModal(){ document.getElementById("ticketModal").classList.remove("hidden") }
     function closeTicketModal(){
@@ -333,6 +370,7 @@
       document.getElementById("tDescription").value = ""
       document.getElementById("tPriority").value = "Media"
       document.getElementById("tClient").value = ""
+      document.getElementById("tDeadline").value = ""
       document.getElementById("ticketModal").classList.add("hidden")
     }
 
@@ -341,13 +379,16 @@
       const description = document.getElementById("tDescription").value.trim()
       const priority = document.getElementById("tPriority").value
       const client = document.getElementById("tClient").value.trim()
+      const deadline = document.getElementById("tDeadline").value
 
       if(!title || !description || !client) return alert("Completá título, detalle y cliente/área")
 
+      showToast("Creando ticket...", "info", 1600)
       const now = new Date().toISOString()
+      const code = buildTicketCode(cachedTickets)
       const ticket = {
-        id: generateId(),
-        title, description, priority, client,
+        id: code,
+        title, description, priority, client, deadline,
         status: "unassigned",
         assignedTo: "",
         comments: {},
@@ -358,10 +399,11 @@
       }
 
       await sheetWrite("createTicket", ticket)
-      logActivity("ticket_creado", { title, client })
+      logActivity("ticket_creado", { title, client, code })
       closeTicketModal()
       await loadTickets()
       await loadDashboard()
+      showToast(`Ticket ${code} creado correctamente`, "ok")
     }
 
     async function loadTickets(){
@@ -383,8 +425,10 @@
         const canSeeTicket = currentRole === "admin" || currentRole === "analista" || (currentRole === "consultor" && (t.createdBy||"") === currentUser.email)
         if(!canSeeTicket) return
 
-        const haystack = `${t.title||""} ${t.description||""} ${t.client||""}`.toLowerCase()
+        const haystack = `${t.title||""} ${t.description||""} ${t.client||""} ${t.createdBy||""}`.toLowerCase()
         if(ticketSearchTerm && !haystack.includes(ticketSearchTerm)) return
+        if(ticketFilterConsultor && !(String(t.createdBy||"").toLowerCase().includes(ticketFilterConsultor))) return
+        if(ticketFilterClient && !(String(t.client||"").toLowerCase().includes(ticketFilterClient))) return
 
         const status = grouped[t.status] ? t.status : "unassigned"
         grouped[status].push(t)
@@ -402,8 +446,9 @@
       if(currentRole === "consultor"){
         return `
           <div class="ticket">
-            <h5>${htmlEscape(ticket.title||"-")}</h5>
+            <h5>${htmlEscape(ticket.id||"-")} · ${htmlEscape(ticket.title||"-")}</h5>
             <div class="meta">Asignado a: ${htmlEscape(ticket.assignedTo||"Sin asignar")}</div>
+            <div class="meta">Deadline: ${ticket.deadline ? htmlEscape(ticket.deadline) : "Sin fecha"}</div>
             <button class="ghost" style="margin-top:8px" onclick="openTicketDetailModal('${ticket.id}')">Ver detalle</button>
           </div>
         `
@@ -411,12 +456,13 @@
 
       return `
         <div class="ticket">
-          <h5>${htmlEscape(ticket.title||"-")}</h5>
+          <h5>${htmlEscape(ticket.id||"-")} · ${htmlEscape(ticket.title||"-")}</h5>
           <p>${htmlEscape(ticket.description||"-")}</p>
           <div class="meta">Cliente/Área: ${htmlEscape(ticket.client||"-")}</div>
           <div class="meta">Prioridad: ${htmlEscape(ticket.priority||"Media")}</div>
           <div class="meta">Creado por ${htmlEscape(ticket.createdBy||"-")} · ${ticket.createdAt?new Date(ticket.createdAt).toLocaleString():"-"}</div>
           <div class="meta">Asignado a: ${htmlEscape(ticket.assignedTo||"Sin asignar")}</div>
+            <div class="meta">Deadline: ${ticket.deadline ? htmlEscape(ticket.deadline) : "Sin fecha"}</div>
           ${renderTicketActions(ticket.id, status)}
           ${renderComments(ticket.id, ticket.comments || {})}
         </div>
@@ -429,12 +475,14 @@
 
       document.getElementById("ticketDetailContent").innerHTML = `
         <div class="row">
+          <div><label>Código</label><input value="${htmlEscape(ticket.id||"")}" disabled></div>
           <div><label>Título</label><input value="${htmlEscape(ticket.title||"")}" disabled></div>
           <div><label>Prioridad</label><input value="${htmlEscape(ticket.priority||"Media")}" disabled></div>
         </div>
         <div><label>Detalle</label><textarea disabled>${htmlEscape(ticket.description||"")}</textarea></div>
         <div><label>Cliente/Área</label><input value="${htmlEscape(ticket.client||"")}" disabled></div>
         <div><label>Asignado a</label><input value="${htmlEscape(ticket.assignedTo||"Sin asignar")}" disabled></div>
+        <div><label>Deadline</label><input value="${htmlEscape(ticket.deadline||"")}" disabled></div>
         ${renderComments(id, ticket.comments || {})}
       `
       document.getElementById("ticketDetailModal").classList.remove("hidden")
@@ -497,6 +545,7 @@
       const next = document.getElementById(`next-${id}`)?.value
       if(!next) return
 
+      showToast("Moviendo ticket...", "info", 1600)
       const ticket = cachedTickets.find(t => t.id === id)
       if(!ticket) return
       const updated = { ...ticket, status: next, updatedAt: new Date().toISOString(), updatedBy: currentUser.email }
@@ -504,6 +553,7 @@
       logActivity("ticket_movido", { ticketId: id, nextStatus: next })
       await loadTickets()
       await loadDashboard()
+      showToast("Ticket movido correctamente", "ok")
     }
 
     async function assignTicket(id){
@@ -514,18 +564,21 @@
       const user = (await db.ref("users_by_email").child(emailKey(assignedTo)).once("value")).val()
       if(!user || user.role !== "analista") return alert("El usuario no existe o no es analista")
 
+      showToast("Asignando ticket...", "info", 1600)
       const ticket = cachedTickets.find(t => t.id === id)
       if(!ticket) return
       const updated = { ...ticket, assignedTo, updatedAt: new Date().toISOString(), updatedBy: currentUser.email }
       await sheetWrite("updateTicket", updated)
       logActivity("ticket_asignado", { ticketId: id, assignedTo })
       await loadTickets()
+      showToast("Ticket asignado correctamente", "ok")
     }
 
     async function addComment(id){
       const message = (document.getElementById(`comment-${id}`)?.value || "").trim()
       if(!message) return
 
+      showToast("Enviando comentario...", "info", 1600)
       const ticket = cachedTickets.find(t => t.id === id)
       if(!ticket) return
       const comments = { ...(ticket.comments || {}) }
@@ -539,14 +592,17 @@
       await loadTickets()
       const detailOpen = !document.getElementById("ticketDetailModal").classList.contains("hidden")
       if(detailOpen) openTicketDetailModal(id)
+      showToast("Comentario enviado correctamente", "ok")
     }
 
     async function deleteTicket(id){
       if(!confirm("¿Seguro que querés borrar este ticket?")) return
+      showToast("Eliminando ticket...", "info", 1600)
       await sheetWrite("deleteTicket", { id })
       logActivity("ticket_borrado", { ticketId: id })
       await loadTickets()
       await loadDashboard()
+      showToast("Ticket eliminado correctamente", "ok")
     }
 
     async function saveUserAccess(){

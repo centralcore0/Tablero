@@ -10,7 +10,7 @@
  *
  * Estructura esperada (Sheet gid=0):
  * A:id | B:title | C:description | D:priority | E:client | F:status |
- * G:assignedTo | H:comments(JSON) | I:createdAt | J:createdBy | K:updatedAt | L:updatedBy
+ * G:assignedTo | H:comments(JSON) | I:createdAt | J:createdBy | K:updatedAt | L:updatedBy | M:deadline
  */
 
 const DEFAULT_GID = '0';
@@ -79,7 +79,7 @@ function getSheetByGid_(gid) {
 function ensureHeader_(sheet) {
   const expected = [
     'id', 'title', 'description', 'priority', 'client', 'status',
-    'assignedTo', 'comments', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'
+    'assignedTo', 'comments', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy', 'deadline'
   ];
   const firstRow = sheet.getRange(1, 1, 1, expected.length).getValues()[0];
   const hasHeader = firstRow.some(v => String(v || '').trim() !== '');
@@ -112,7 +112,8 @@ function normalizeTicket_(p) {
     createdAt: String(p.createdAt || now),
     createdBy: String(p.createdBy || ''),
     updatedAt: String(p.updatedAt || now),
-    updatedBy: String(p.updatedBy || '')
+    updatedBy: String(p.updatedBy || ''),
+    deadline: String(p.deadline || '')
   };
 }
 
@@ -122,13 +123,13 @@ function upsertTicket_(sheet, payload, createOnly) {
 
   const rowData = [[
     t.id, t.title, t.description, t.priority, t.client, t.status,
-    t.assignedTo, t.comments, t.createdAt, t.createdBy, t.updatedAt, t.updatedBy
+    t.assignedTo, t.comments, t.createdAt, t.createdBy, t.updatedAt, t.updatedBy, t.deadline
   ]];
 
   const existingRow = findTicketRow_(sheet, t.id);
   if (existingRow > 1) {
     if (createOnly) return;
-    sheet.getRange(existingRow, 1, 1, 12).setValues(rowData);
+    sheet.getRange(existingRow, 1, 1, 13).setValues(rowData);
   } else {
     sheet.appendRow(rowData[0]);
   }
