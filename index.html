@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Tablero de Tickets</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Ctext y=%2750%27 font-size=%2750%27%3E🎫%3C/text%3E%3C/svg%3E" />
 
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
@@ -171,13 +172,20 @@
         alert("Falta configurar SHEET_WEBHOOK_URL para guardar cambios en Google Sheets")
         throw new Error("SHEET_WEBHOOK_URL no configurada")
       }
+
+      // Enviamos text/plain para evitar preflight CORS en hosting estático (GitHub Pages).
+      const requestBody = JSON.stringify({ action, payload, sheetId: SHEET_ID, gid: SHEET_GID })
       const res = await fetch(SHEET_WEBHOOK_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, payload, sheetId: SHEET_ID, gid: SHEET_GID })
+        mode: "cors",
+        redirect: "follow",
+        body: requestBody
       })
-      if(!res.ok) throw new Error("No se pudo escribir en Google Sheets")
-      return res.json().catch(()=>({ ok:true }))
+
+      if(!res.ok) throw new Error(`No se pudo escribir en Google Sheets (${res.status})`)
+      const data = await res.json().catch(() => ({ ok: true }))
+      if(data && data.ok === false) throw new Error(data.error || "Error al guardar en Google Sheets")
+      return data
     }
 
     async function logActivity(eventType, details={}){
@@ -360,7 +368,14 @@
       const container = document.getElementById("boardContainer")
       if(!container) return
 
-      const data = await fetchTicketsFromSheet()
+      let data = []
+      try{
+        data = await fetchTicketsFromSheet()
+      }catch(err){
+        console.error(err)
+        container.innerHTML = `<p class="small">No se pudieron cargar tickets desde Google Sheets.</p>`
+        return
+      }
       cachedTickets = data
       const grouped = { unassigned: [], todo: [], doing: [], recurrent: [], done: [] }
 
@@ -410,53 +425,6 @@
 
     async function openTicketDetailModal(id){
       const ticket = cachedTickets.find(t => t.id === id)
-      if(!ticket) return alert("No se encontró el ticket")
-
-      document.getElementById("ticketDetailContent").innerHTML = `
-        <div class="row">
-          <div><label>Título</label><input value="${htmlEscape(ticket.title||"")}" disabled></div>
-          <div><label>Prioridad</label><input value="${htmlEscape(ticket.priority||"Media")}" disabled></div>
-        </div>
-        <div><label>Detalle</label><textarea disabled>${htmlEscape(ticket.description||"")}</textarea></div>
-        <div><label>Cliente/Área</label><input value="${htmlEscape(ticket.client||"")}" disabled></div>
-        <div><label>Asignado a</label><input value="${htmlEscape(ticket.assignedTo||"Sin asignar")}" disabled></div>
-        ${renderComments(id, ticket.comments || {})}
-      `
-      document.getElementById("ticketDetailModal").classList.remove("hidden")
-    }
-
-    function closeTicketDetailModal(){
-      document.getElementById("ticketDetailModal").classList.add("hidden")
-      document.getElementById("ticketDetailContent").innerHTML = ""
-    }
-
-    function renderTicketCard(ticket, status){
-      if(currentRole === "consultor"){
-        return `
-          <div class="ticket">
-            <h5>${htmlEscape(ticket.title||"-")}</h5>
-            <div class="meta">Asignado a: ${htmlEscape(ticket.assignedTo||"Sin asignar")}</div>
-            <button class="ghost" style="margin-top:8px" onclick="openTicketDetailModal('${ticket.id}')">Ver detalle</button>
-          </div>
-        `
-      }
-
-      return `
-        <div class="ticket">
-          <h5>${htmlEscape(ticket.title||"-")}</h5>
-          <p>${htmlEscape(ticket.description||"-")}</p>
-          <div class="meta">Cliente/Área: ${htmlEscape(ticket.client||"-")}</div>
-          <div class="meta">Prioridad: ${htmlEscape(ticket.priority||"Media")}</div>
-          <div class="meta">Creado por ${htmlEscape(ticket.createdBy||"-")} · ${ticket.createdAt?new Date(ticket.createdAt).toLocaleString():"-"}</div>
-          <div class="meta">Asignado a: ${htmlEscape(ticket.assignedTo||"Sin asignar")}</div>
-          ${renderTicketActions(ticket.id, status)}
-          ${renderComments(ticket.id, ticket.comments || {})}
-        </div>
-      `
-    }
-
-    async function openTicketDetailModal(id){
-      const ticket = (await db.ref("tickets").child(id).once("value")).val()
       if(!ticket) return alert("No se encontró el ticket")
 
       document.getElementById("ticketDetailContent").innerHTML = `
