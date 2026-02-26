@@ -44,6 +44,8 @@
     .feedType{font-weight:600}
     .feedMeta{font-size:12px;color:var(--muted);margin-top:4px}
 
+    .boardWrap{overflow-x:auto;overflow-y:visible;padding-bottom:4px}
+    .board{display:grid;grid-template-columns:repeat(5,minmax(260px,1fr));gap:12px;overflow:visible;align-items:start}
     .board{display:grid;grid-template-columns:repeat(5,minmax(260px,1fr));gap:12px;overflow:auto}
     .column{background:rgba(2,6,23,.35);border:1px solid var(--stroke);border-radius:12px;padding:10px;min-height:220px}
     .column h4{margin:4px 0 10px;font-size:14px;text-transform:uppercase;color:#cbd5e1;letter-spacing:.3px}
@@ -92,6 +94,11 @@
     })
 
     const db = firebase.database()
+    const DEFAULT_USERS = [
+      { email: "admin@tablero.local", password: "1234", role: "admin" },
+      { email: "consultor@tablero.local", password: "1234", role: "consultor" },
+      { email: "analista@tablero.local", password: "1234", role: "analista" }
+    ]
     const SUPER_USER_EMAIL = "consultoria@tablero.local"
     const SUPER_USER_PASSWORD = "1234"
 
@@ -122,6 +129,20 @@
       }catch(_){ }
     }
 
+    async function ensureDefaultUsers(){
+      for(const user of DEFAULT_USERS){
+        const ref = db.ref("users_by_email").child(emailKey(user.email))
+        const snap = await ref.once("value")
+        if(!snap.exists()){
+          await ref.set({
+            email: user.email,
+            password: user.password,
+            role: user.role,
+            active: true,
+            createdAt: new Date().toISOString(),
+            createdBy: "system"
+          })
+        }
     async function ensureConsultoria(){
       const ref = db.ref("users_by_email").child(emailKey(SUPER_USER_EMAIL))
       const snap = await ref.once("value")
@@ -150,6 +171,7 @@
           <label>Email</label><input id="loginEmail" type="email">
           <label>Contraseña</label><input id="loginPassword" type="password">
           <button onclick="handleLogin()" style="width:100%">Entrar</button>
+          <p class="small" style="margin-top:10px">Usuarios iniciales: admin@tablero.local, consultor@tablero.local, analista@tablero.local (clave: 1234)</p>
           <p class="small" style="margin-top:10px">Usuario inicial consultoría: consultoria@tablero.local / 1234</p>
         </div>`
     }
@@ -174,6 +196,8 @@
     function logout(){ currentUser = null; currentRole = null; renderLogin() }
 
     function renderApp(){
+      const isAdmin = currentRole === "admin"
+      const canCreateTicket = currentRole === "admin" || currentRole === "analista" || currentRole === "consultor"
       const isConsultoria = currentRole === "consultoria"
 
       document.getElementById("app").innerHTML = `
@@ -182,6 +206,10 @@
             <div class="inline" style="justify-content:space-between">
               <div>
                 <h2 style="margin:0">Tablero de tickets</h2>
+                <p class="small" style="margin:6px 0 0">Panel ${htmlEscape(currentRole)} · ${htmlEscape(currentUser.email)}</p>
+              </div>
+              <div class="inline">
+                ${canCreateTicket?`<button onclick="openTicketModal()">+ Nuevo ticket</button>`:""}
                 <p class="small" style="margin:6px 0 0">${isConsultoria?"Panel Consultoría":"Panel Operador"} · ${htmlEscape(currentUser.email)}</p>
               </div>
               <div class="inline">
@@ -197,6 +225,10 @@
                 <div class="kpi"><div class="label">Pendientes de asignar</div><div class="value" id="kpiUnassigned">-</div></div>
                 <div class="kpi"><div class="label">En curso</div><div class="value" id="kpiDoing">-</div></div>
                 <div class="kpi"><div class="label">Finalizadas</div><div class="value" id="kpiDone">-</div></div>
+                <div class="kpi"><div class="label">Analistas</div><div class="value" id="kpiOperators">-</div></div>
+                <div class="kpi"><div class="label">Último acceso analista</div><div class="value" style="font-size:14px;margin-top:8px" id="kpiLastAccess">-</div></div>
+              </div>
+              ${currentRole !== "consultor" ? `
                 <div class="kpi"><div class="label">Operadores</div><div class="value" id="kpiOperators">-</div></div>
                 <div class="kpi"><div class="label">Último acceso operador</div><div class="value" style="font-size:14px;margin-top:8px" id="kpiLastAccess">-</div></div>
               </div>
@@ -207,6 +239,11 @@
                 </div>
                 <div id="recentActivity" style="margin-top:10px"></div>
               </div>
+              ` : ``}
+            </div>
+          </div>
+
+          ${isAdmin?`
             </div>
           </div>
 
@@ -218,6 +255,7 @@
                 <div><label>Contraseña</label><input id="uPassword" type="text"></div>
               </div>
               <div class="row">
+                <div><label>Rol</label><select id="uRole"><option value="consultor">Consultor</option><option value="analista">Analista</option><option value="admin">Admin</option></select></div>
                 <div><label>Rol</label><select id="uRole"><option value="operator">Operador</option><option value="consultoria">Consultoría</option></select></div>
                 <div style="display:flex;align-items:flex-end"><button onclick="saveUserAccess()">Guardar usuario</button></div>
               </div>
@@ -234,6 +272,10 @@
           <div class="searchWrap"><input oninput="updateTicketSearch(this.value)" placeholder="Buscar por título, cliente o descripción"></div>
         </div>
 
+        <div class="card"><div class="boardWrap"><div id="boardContainer"></div></div></div>
+      `
+
+      if(isAdmin) loadUsersAdmin()
         <div class="card"><div id="boardContainer"></div></div>
       `
 
@@ -264,6 +306,8 @@
       await db.ref("tickets").push({
         title, description, priority, client,
         status: "unassigned",
+        assignedTo: "",
+        comments: {},
         createdAt: new Date().toISOString(),
         createdBy: currentUser.email,
         updatedAt: new Date().toISOString(),
@@ -283,6 +327,9 @@
         const grouped = { unassigned: [], todo: [], doing: [], recurrent: [], done: [] }
 
         Object.entries(data).forEach(([id, t]) => {
+          const canSeeTicket = currentRole === "admin" || currentRole === "analista" || (currentRole === "consultor" && (t.createdBy||"") === currentUser.email)
+          if(!canSeeTicket) return
+
           const haystack = `${t.title||""} ${t.description||""} ${t.client||""}`.toLowerCase()
           if(ticketSearchTerm && !haystack.includes(ticketSearchTerm)) return
 
@@ -300,6 +347,9 @@
                 <div class="meta">Cliente/Área: ${htmlEscape(t.client||"-")}</div>
                 <div class="meta">Prioridad: ${htmlEscape(t.priority||"Media")}</div>
                 <div class="meta">Creado por ${htmlEscape(t.createdBy||"-")} · ${t.createdAt?new Date(t.createdAt).toLocaleString():"-"}</div>
+                <div class="meta">Asignado a: ${htmlEscape(t.assignedTo||"Sin asignar")}</div>
+                ${renderTicketActions(t.id, status)}
+                ${renderComments(t.id, t.comments || {})}
                 ${renderTicketActions(t.id, status)}
               </div>
             `).join("") || `<p class="small">Sin tickets</p>`}
@@ -314,6 +364,44 @@
         .map(([key, label]) => `<option value="${key}">${label}</option>`)
         .join("")
 
+      const canDelete = currentRole === "admin"
+      const canMove = currentRole === "admin" || currentRole === "analista"
+      const canAssign = currentRole === "admin" || currentRole === "analista"
+
+      const assignSelect = canAssign ? `
+        <div class="inline" style="margin-top:8px;width:100%">
+          <input id="assign-${id}" placeholder="Email analista" style="margin:0;min-width:170px" />
+          <button class="ghost" onclick="assignTicket('${id}')">Asignar</button>
+        </div>
+      ` : ""
+
+      const moveBlock = canMove ? `
+        <select id="next-${id}" style="margin:0;min-width:160px">
+          ${options}
+        </select>
+        <button class="ghost" onclick="moveTicket('${id}')">Mover</button>
+      ` : `<span class="small">Solo admin/analista pueden mover estados</span>`
+
+      return `
+        <div class="inline" style="margin-top:8px">
+          ${moveBlock}
+          ${canDelete?`<button class="danger" onclick="deleteTicket('${id}')">Borrar</button>`:""}
+        </div>
+        ${assignSelect}
+      `
+    }
+
+    function renderComments(id, comments){
+      const list = Object.values(comments || {}).sort((a,b)=>new Date(a.createdAt||0)-new Date(b.createdAt||0))
+      return `
+        <div style="margin-top:10px;border-top:1px solid rgba(148,163,184,.2);padding-top:8px">
+          <div class="small" style="margin-bottom:6px">Comentarios</div>
+          ${list.length ? list.map(c=>`<div class="small" style="margin-bottom:4px"><strong>${htmlEscape(c.author||"-")}</strong>: ${htmlEscape(c.message||"")} <span style="opacity:.8">(${c.createdAt?new Date(c.createdAt).toLocaleString():""})</span></div>`).join("") : `<div class="small">Sin comentarios</div>`}
+          <div class="inline" style="margin-top:6px">
+            <input id="comment-${id}" placeholder="Escribí un comentario" style="margin:0" />
+            <button class="ghost" onclick="addComment('${id}')">Comentar</button>
+          </div>
+        </div>
       const canDelete = currentRole === "consultoria"
 
       return `
@@ -328,6 +416,7 @@
     }
 
     async function moveTicket(id){
+      if(!(currentRole === "admin" || currentRole === "analista")) return alert("No tenés permisos para mover tickets")
       const next = document.getElementById(`next-${id}`)?.value
       if(!next) return
 
@@ -339,6 +428,35 @@
       logActivity("ticket_movido", { ticketId: id, nextStatus: next })
     }
 
+    async function assignTicket(id){
+      if(!(currentRole === "admin" || currentRole === "analista")) return alert("No tenés permisos para asignar tickets")
+      const assignedTo = (document.getElementById(`assign-${id}`)?.value || "").trim().toLowerCase()
+      if(!assignedTo) return alert("Ingresá el email del analista")
+
+      const user = (await db.ref("users_by_email").child(emailKey(assignedTo)).once("value")).val()
+      if(!user || user.role !== "analista") return alert("El usuario no existe o no es analista")
+
+      await db.ref("tickets").child(id).update({
+        assignedTo,
+        updatedAt: new Date().toISOString(),
+        updatedBy: currentUser.email
+      })
+      logActivity("ticket_asignado", { ticketId: id, assignedTo })
+    }
+
+    async function addComment(id){
+      const message = (document.getElementById(`comment-${id}`)?.value || "").trim()
+      if(!message) return
+
+      await db.ref("tickets").child(id).child("comments").push({
+        message,
+        author: currentUser.email,
+        createdAt: new Date().toISOString()
+      })
+      document.getElementById(`comment-${id}`).value = ""
+      logActivity("ticket_comentario", { ticketId: id })
+    }
+
     async function deleteTicket(id){
       if(!confirm("¿Seguro que querés borrar este ticket?")) return
       await db.ref("tickets").child(id).remove()
@@ -346,6 +464,7 @@
     }
 
     async function saveUserAccess(){
+      if(currentRole !== "admin") return alert("Solo admin puede crear usuarios")
       const email = document.getElementById("uEmail").value.trim().toLowerCase()
       const password = document.getElementById("uPassword").value.trim()
       const role = document.getElementById("uRole").value
@@ -375,6 +494,7 @@
     }
 
     async function deleteUserAccess(key,email){
+      if(currentRole !== "admin") return alert("Solo admin puede eliminar usuarios")
       if(!confirm(`¿Eliminar acceso para ${email}?`)) return
       await db.ref("users_by_email").child(key).remove()
     }
@@ -393,6 +513,7 @@
           if(t.status === "done") done++
         })
 
+        const ops = users.filter(u => u && u.role === "analista")
         const ops = users.filter(u => u && u.role === "operator")
         const last = ops.map(u => u.lastAccessAt ? new Date(u.lastAccessAt).getTime() : 0).sort((a,b)=>b-a)[0] || 0
 
@@ -404,6 +525,7 @@
         document.getElementById("kpiLastAccess").innerText = last ? new Date(last).toLocaleString() : "Sin accesos"
 
         const container = document.getElementById("recentActivity")
+        if(!container) return
         const sorted = activity.sort((a,b)=>new Date(b.timestampIso||0)-new Date(a.timestampIso||0))
         if(!sorted.length){
           container.innerHTML = `<p class="small">Sin actividad reciente.</p>`
@@ -415,6 +537,7 @@
                   <div class="feedType">${htmlEscape(it.eventType || "evento")}</div>
                   <div class="feedMeta">${htmlEscape(it.email || "sin-usuario")} · ${it.timestampIso ? new Date(it.timestampIso).toLocaleString() : ""}</div>
                 </div>
+                <span class="badge ${it.role === "admin" ? "ok" : "off"}">${htmlEscape(it.role || "-")}</span>
                 <span class="badge ${it.role === "consultoria" ? "ok" : "off"}">${htmlEscape(it.role || "-")}</span>
               </div>
             </div>
@@ -425,6 +548,7 @@
 
     async function init(){
       renderLogin()
+      await ensureDefaultUsers()
       await ensureConsultoria()
     }
 
