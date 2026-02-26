@@ -430,6 +430,53 @@
       document.getElementById("ticketDetailContent").innerHTML = ""
     }
 
+    function renderTicketCard(ticket, status){
+      if(currentRole === "consultor"){
+        return `
+          <div class="ticket">
+            <h5>${htmlEscape(ticket.title||"-")}</h5>
+            <div class="meta">Asignado a: ${htmlEscape(ticket.assignedTo||"Sin asignar")}</div>
+            <button class="ghost" style="margin-top:8px" onclick="openTicketDetailModal('${ticket.id}')">Ver detalle</button>
+          </div>
+        `
+      }
+
+      return `
+        <div class="ticket">
+          <h5>${htmlEscape(ticket.title||"-")}</h5>
+          <p>${htmlEscape(ticket.description||"-")}</p>
+          <div class="meta">Cliente/Área: ${htmlEscape(ticket.client||"-")}</div>
+          <div class="meta">Prioridad: ${htmlEscape(ticket.priority||"Media")}</div>
+          <div class="meta">Creado por ${htmlEscape(ticket.createdBy||"-")} · ${ticket.createdAt?new Date(ticket.createdAt).toLocaleString():"-"}</div>
+          <div class="meta">Asignado a: ${htmlEscape(ticket.assignedTo||"Sin asignar")}</div>
+          ${renderTicketActions(ticket.id, status)}
+          ${renderComments(ticket.id, ticket.comments || {})}
+        </div>
+      `
+    }
+
+    async function openTicketDetailModal(id){
+      const ticket = (await db.ref("tickets").child(id).once("value")).val()
+      if(!ticket) return alert("No se encontró el ticket")
+
+      document.getElementById("ticketDetailContent").innerHTML = `
+        <div class="row">
+          <div><label>Título</label><input value="${htmlEscape(ticket.title||"")}" disabled></div>
+          <div><label>Prioridad</label><input value="${htmlEscape(ticket.priority||"Media")}" disabled></div>
+        </div>
+        <div><label>Detalle</label><textarea disabled>${htmlEscape(ticket.description||"")}</textarea></div>
+        <div><label>Cliente/Área</label><input value="${htmlEscape(ticket.client||"")}" disabled></div>
+        <div><label>Asignado a</label><input value="${htmlEscape(ticket.assignedTo||"Sin asignar")}" disabled></div>
+        ${renderComments(id, ticket.comments || {})}
+      `
+      document.getElementById("ticketDetailModal").classList.remove("hidden")
+    }
+
+    function closeTicketDetailModal(){
+      document.getElementById("ticketDetailModal").classList.add("hidden")
+      document.getElementById("ticketDetailContent").innerHTML = ""
+    }
+
     function renderTicketActions(id, currentStatus){
       const options = Object.entries(STATUS)
         .filter(([key]) => key !== currentStatus)
