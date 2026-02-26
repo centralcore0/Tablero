@@ -48,10 +48,12 @@
 
     .boardWrap{overflow-x:auto;overflow-y:visible;padding-bottom:4px}
     .board{display:grid;grid-template-columns:repeat(5,minmax(260px,1fr));gap:12px;overflow:visible;align-items:start}
-    .column{background:rgba(2,6,23,.35);border:1px solid var(--stroke);border-radius:12px;padding:10px;min-height:220px}
+    .column{background:rgba(2,6,23,.35);border:1px solid var(--stroke);border-radius:12px;padding:10px;min-height:220px;height:100%;display:flex;flex-direction:column}
     .column h4{margin:4px 0 10px;font-size:14px;text-transform:uppercase;color:#cbd5e1;letter-spacing:.3px}
     .ticket{background:rgba(15,23,42,.8);border:1px solid rgba(148,163,184,.2);border-radius:10px;padding:10px;margin-bottom:8px}
     .ticket h5{margin:0 0 8px;font-size:14px}
+    .ticketCode{font-size:11px;color:#94a3b8;font-weight:600;margin-right:6px}
+    .deadline{color:#f87171}
     .ticket p{margin:0 0 8px;font-size:13px;color:#cbd5e1}
     .ticket .meta{font-size:11px;color:var(--muted)}
     .modalBack{position:fixed;inset:0;background:rgba(2,6,23,.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:16px;z-index:99}
@@ -78,8 +80,13 @@
       </div>
       <div><label>Detalle</label><textarea id="tDescription"></textarea></div>
       <div class="row">
+<<<<<<< codex/modificar-visualizacion-de-usuarios-consultor-n8it6d
+        <div><label>Cliente/Área</label><select id="tClient"></select></div>
+        <div><label>Deadline</label><input id="tDeadline" type="date" onkeydown="return false" onfocus="this.showPicker && this.showPicker()" /></div>
+=======
         <div><label>Cliente/Área</label><input id="tClient" /></div>
         <div><label>Deadline</label><input id="tDeadline" type="date" /></div>
+>>>>>>> main
       </div>
 
       <div class="inline" style="justify-content:flex-end">
@@ -122,6 +129,11 @@
     let ticketSearchTerm = ""
     let ticketFilterConsultor = ""
     let ticketFilterClient = ""
+<<<<<<< codex/modificar-visualizacion-de-usuarios-consultor-n8it6d
+    let cachedClients = []
+    let cachedConsultors = []
+=======
+>>>>>>> main
 
     const STATUS = {
       unassigned: "Pendientes de asignar",
@@ -135,7 +147,11 @@
     const SHEET_GID = "0"
     // Reemplazar por tu URL de Web App de Apps Script para habilitar escritura en la hoja.
     // Debe aceptar JSON { action, payload } para createTicket/updateTicket/deleteTicket.
+<<<<<<< codex/modificar-visualizacion-de-usuarios-consultor-n8it6d
+    const SHEET_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbyRLv3IqWF7O-045AsuEQzqOn2FstgF8X3TfBXQB6eSLJr44u6nm3QUQH_mtBaSjVYUhw/exec"
+=======
     const SHEET_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycby1MJsPs0stDiyxAna08kcQCG-LhTPeBz9Ap3PQSMFL6DXBQFsgk-wuMzgZP-kyjTah2w/exec"
+>>>>>>> main
     let cachedTickets = []
 
     function emailKey(email){ return (email||"").toLowerCase().replace(/[.#$/\[\]]/g, "_") }
@@ -170,6 +186,65 @@
       return `TAO-${String(next).padStart(2,"0")}`
     }
 
+<<<<<<< codex/modificar-visualizacion-de-usuarios-consultor-n8it6d
+
+    async function loadFilterOptions(){
+      const users = Object.values((await db.ref("users_by_email").once("value")).val() || {})
+      cachedConsultors = users.filter(u => u && u.role === "consultor" && u.active !== false).map(u => (u.email||"").toLowerCase())
+
+      const clients = Object.values((await db.ref("clients").once("value")).val() || {})
+      cachedClients = clients.map(c => String(c.name||"").trim()).filter(Boolean).sort((a,b)=>a.localeCompare(b,'es'))
+
+      const consultorSelect = document.getElementById("filterConsultor")
+      if(consultorSelect){
+        consultorSelect.innerHTML = `<option value="">Todos los consultores</option>${cachedConsultors.map(c => `<option value="${htmlEscape(c)}">${htmlEscape(c)}</option>`).join("")}`
+        consultorSelect.value = ticketFilterConsultor
+      }
+
+      const clientFilterSelect = document.getElementById("filterClient")
+      if(clientFilterSelect){
+        clientFilterSelect.innerHTML = `<option value="">Todos los clientes</option>${cachedClients.map(c => `<option value="${htmlEscape(c)}">${htmlEscape(c)}</option>`).join("")}`
+        clientFilterSelect.value = ticketFilterClient
+      }
+
+      const ticketClientSelect = document.getElementById("tClient")
+      if(ticketClientSelect){
+        ticketClientSelect.innerHTML = `<option value="">Seleccionar cliente</option>${cachedClients.map(c => `<option value="${htmlEscape(c)}">${htmlEscape(c)}</option>`).join("")}`
+      }
+    }
+
+    async function saveClient(){
+      if(currentRole !== "admin") return alert("Solo admin puede agregar clientes")
+      const name = (document.getElementById("cName")?.value || "").trim()
+      if(!name) return alert("Ingresá un cliente")
+      await db.ref("clients").child(emailKey(name)).set({ name, createdAt: new Date().toISOString(), createdBy: currentUser.email })
+      const input = document.getElementById("cName")
+      if(input) input.value = ""
+      showToast("Cliente agregado", "ok")
+      await loadClientsAdmin()
+      await loadFilterOptions()
+    }
+
+    async function deleteClient(key){
+      if(currentRole !== "admin") return alert("Solo admin puede eliminar clientes")
+      if(!confirm("¿Eliminar cliente?")) return
+      await db.ref("clients").child(key).remove()
+      showToast("Cliente eliminado", "ok")
+      await loadClientsAdmin()
+      await loadFilterOptions()
+    }
+
+    async function loadClientsAdmin(){
+      const container = document.getElementById("clientsList")
+      if(!container) return
+      const data = (await db.ref("clients").once("value")).val() || {}
+      const items = Object.entries(data)
+      if(!items.length){ container.innerHTML = "Sin clientes"; return }
+      container.innerHTML = items.map(([k,c]) => `<div class="inline" style="justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(148,163,184,.15)"><span>${htmlEscape(c.name||"")}</span><button class="danger" onclick="deleteClient('${k}')">Eliminar</button></div>`).join("")
+    }
+
+=======
+>>>>>>> main
     async function fetchTicketsFromSheet(){
       const query = encodeURIComponent("select A,B,C,D,E,F,G,H,I,J,K,L,M")
       const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${SHEET_GID}&tq=${query}`
@@ -310,7 +385,11 @@
                 <div class="kpi"><div class="label">En curso</div><div class="value" id="kpiDoing">-</div></div>
                 <div class="kpi"><div class="label">Finalizadas</div><div class="value" id="kpiDone">-</div></div>
                 <div class="kpi"><div class="label">Analistas</div><div class="value" id="kpiOperators">-</div></div>
+<<<<<<< codex/modificar-visualizacion-de-usuarios-consultor-n8it6d
+                <div class="kpi"><div class="label">Último acceso analista</div><div class="value" style="font-size:14px;margin-top:8px" id="kpiLastAccess">${currentRole !== "consultor" ? "-" : "No aplica"}</div></div>
+=======
                 ${currentRole !== "consultor" ? `<div class="kpi"><div class="label">Último acceso analista</div><div class="value" style="font-size:14px;margin-top:8px" id="kpiLastAccess">-</div></div>` : ""}
+>>>>>>> main
               </div>
               ${currentRole !== "consultor" ? `
               <div style="margin-top:14px">
@@ -336,6 +415,13 @@
                 <div style="display:flex;align-items:flex-end"><button onclick="saveUserAccess()">Guardar usuario</button></div>
               </div>
               <div id="usersList" class="small"></div>
+              <hr style="border-color:rgba(148,163,184,.2);margin:12px 0">
+              <h4 style="margin:0 0 8px">Clientes</h4>
+              <div class="row">
+                <div><label>Nuevo cliente</label><input id="cName"></div>
+                <div style="display:flex;align-items:flex-end"><button onclick="saveClient()">Agregar cliente</button></div>
+              </div>
+              <div id="clientsList" class="small"></div>
             </div>
           `:"<div></div>"}
         </div>
@@ -347,15 +433,21 @@
           </div>
           <div class="row">
             <div class="searchWrap"><input oninput="updateTicketSearch(this.value)" placeholder="Buscar por título, cliente o descripción"></div>
+<<<<<<< codex/modificar-visualizacion-de-usuarios-consultor-n8it6d
+            <div><select id="filterConsultor" onchange="updateConsultorFilter(this.value)"><option value="">Todos los consultores</option></select></div>
+            <div><select id="filterClient" onchange="updateClientFilter(this.value)"><option value="">Todos los clientes</option></select></div>
+=======
             <div><input oninput="updateConsultorFilter(this.value)" placeholder="Filtrar por consultor (email)"></div>
             <div><input oninput="updateClientFilter(this.value)" placeholder="Filtrar por cliente"></div>
+>>>>>>> main
           </div>
         </div>
 
         <div class="card"><div class="boardWrap"><div id="boardContainer"></div></div></div>
       `
 
-      if(isAdmin) loadUsersAdmin()
+      if(isAdmin){ loadUsersAdmin(); loadClientsAdmin() }
+      loadFilterOptions()
       loadTickets()
       loadDashboard()
     }
@@ -434,8 +526,16 @@
         grouped[status].push(t)
       })
 
+<<<<<<< codex/modificar-visualizacion-de-usuarios-consultor-n8it6d
+      const maxTicketsInColumn = Math.max(...Object.values(grouped).map(arr => arr.length), 0)
+      const uniformHeight = Math.max(220, 120 + maxTicketsInColumn * 190)
+
+      container.innerHTML = `<div class="board">${Object.entries(STATUS).map(([status, label]) => `
+        <div class="column" style="min-height:${uniformHeight}px">
+=======
       container.innerHTML = `<div class="board">${Object.entries(STATUS).map(([status, label]) => `
         <div class="column">
+>>>>>>> main
           <h4>${label} <span class="small">(${grouped[status].length})</span></h4>
           ${grouped[status].map(t => renderTicketCard(t, status)).join("") || `<p class="small">Sin tickets</p>`}
         </div>
@@ -446,9 +546,15 @@
       if(currentRole === "consultor"){
         return `
           <div class="ticket">
+<<<<<<< codex/modificar-visualizacion-de-usuarios-consultor-n8it6d
+            <h5><span class="ticketCode">${htmlEscape(ticket.id||"-")}</span>${htmlEscape(ticket.title||"-")}</h5>
+            <div class="meta">Asignado a: ${htmlEscape(ticket.assignedTo||"Sin asignar")}</div>
+            <div class="meta deadline">Deadline: ${ticket.deadline ? htmlEscape(ticket.deadline) : "Sin fecha"}</div>
+=======
             <h5>${htmlEscape(ticket.id||"-")} · ${htmlEscape(ticket.title||"-")}</h5>
             <div class="meta">Asignado a: ${htmlEscape(ticket.assignedTo||"Sin asignar")}</div>
             <div class="meta">Deadline: ${ticket.deadline ? htmlEscape(ticket.deadline) : "Sin fecha"}</div>
+>>>>>>> main
             <button class="ghost" style="margin-top:8px" onclick="openTicketDetailModal('${ticket.id}')">Ver detalle</button>
           </div>
         `
@@ -456,13 +562,21 @@
 
       return `
         <div class="ticket">
+<<<<<<< codex/modificar-visualizacion-de-usuarios-consultor-n8it6d
+          <h5><span class="ticketCode">${htmlEscape(ticket.id||"-")}</span>${htmlEscape(ticket.title||"-")}</h5>
+=======
           <h5>${htmlEscape(ticket.id||"-")} · ${htmlEscape(ticket.title||"-")}</h5>
+>>>>>>> main
           <p>${htmlEscape(ticket.description||"-")}</p>
           <div class="meta">Cliente/Área: ${htmlEscape(ticket.client||"-")}</div>
           <div class="meta">Prioridad: ${htmlEscape(ticket.priority||"Media")}</div>
           <div class="meta">Creado por ${htmlEscape(ticket.createdBy||"-")} · ${ticket.createdAt?new Date(ticket.createdAt).toLocaleString():"-"}</div>
           <div class="meta">Asignado a: ${htmlEscape(ticket.assignedTo||"Sin asignar")}</div>
+<<<<<<< codex/modificar-visualizacion-de-usuarios-consultor-n8it6d
+            <div class="meta deadline">Deadline: ${ticket.deadline ? htmlEscape(ticket.deadline) : "Sin fecha"}</div>
+=======
             <div class="meta">Deadline: ${ticket.deadline ? htmlEscape(ticket.deadline) : "Sin fecha"}</div>
+>>>>>>> main
           ${renderTicketActions(ticket.id, status)}
           ${renderComments(ticket.id, ticket.comments || {})}
         </div>
