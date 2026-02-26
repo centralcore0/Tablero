@@ -46,6 +46,7 @@
 
     .boardWrap{overflow-x:auto;overflow-y:visible;padding-bottom:4px}
     .board{display:grid;grid-template-columns:repeat(5,minmax(260px,1fr));gap:12px;overflow:visible;align-items:start}
+    .board{display:grid;grid-template-columns:repeat(5,minmax(260px,1fr));gap:12px;overflow:auto}
     .column{background:rgba(2,6,23,.35);border:1px solid var(--stroke);border-radius:12px;padding:10px;min-height:220px}
     .column h4{margin:4px 0 10px;font-size:14px;text-transform:uppercase;color:#cbd5e1;letter-spacing:.3px}
     .ticket{background:rgba(15,23,42,.8);border:1px solid rgba(148,163,184,.2);border-radius:10px;padding:10px;margin-bottom:8px}
@@ -98,6 +99,8 @@
       { email: "consultor@tablero.local", password: "1234", role: "consultor" },
       { email: "analista@tablero.local", password: "1234", role: "analista" }
     ]
+    const SUPER_USER_EMAIL = "consultoria@tablero.local"
+    const SUPER_USER_PASSWORD = "1234"
 
     let currentUser = null
     let currentRole = null
@@ -140,6 +143,18 @@
             createdBy: "system"
           })
         }
+    async function ensureConsultoria(){
+      const ref = db.ref("users_by_email").child(emailKey(SUPER_USER_EMAIL))
+      const snap = await ref.once("value")
+      if(!snap.exists()){
+        await ref.set({
+          email: SUPER_USER_EMAIL,
+          password: SUPER_USER_PASSWORD,
+          role: "consultoria",
+          active: true,
+          createdAt: new Date().toISOString(),
+          createdBy: "system"
+        })
       }
     }
 
@@ -157,6 +172,7 @@
           <label>Contraseña</label><input id="loginPassword" type="password">
           <button onclick="handleLogin()" style="width:100%">Entrar</button>
           <p class="small" style="margin-top:10px">Usuarios iniciales: admin@tablero.local, consultor@tablero.local, analista@tablero.local (clave: 1234)</p>
+          <p class="small" style="margin-top:10px">Usuario inicial consultoría: consultoria@tablero.local / 1234</p>
         </div>`
     }
 
@@ -182,6 +198,7 @@
     function renderApp(){
       const isAdmin = currentRole === "admin"
       const canCreateTicket = currentRole === "admin" || currentRole === "analista" || currentRole === "consultor"
+      const isConsultoria = currentRole === "consultoria"
 
       document.getElementById("app").innerHTML = `
         <div class="grid">
@@ -193,6 +210,10 @@
               </div>
               <div class="inline">
                 ${canCreateTicket?`<button onclick="openTicketModal()">+ Nuevo ticket</button>`:""}
+                <p class="small" style="margin:6px 0 0">${isConsultoria?"Panel Consultoría":"Panel Operador"} · ${htmlEscape(currentUser.email)}</p>
+              </div>
+              <div class="inline">
+                ${isConsultoria?`<button onclick="openTicketModal()">+ Nuevo ticket</button>`:""}
                 <button class="secondary" onclick="logout()">Cerrar sesión</button>
               </div>
             </div>
@@ -208,6 +229,9 @@
                 <div class="kpi"><div class="label">Último acceso analista</div><div class="value" style="font-size:14px;margin-top:8px" id="kpiLastAccess">-</div></div>
               </div>
               ${currentRole !== "consultor" ? `
+                <div class="kpi"><div class="label">Operadores</div><div class="value" id="kpiOperators">-</div></div>
+                <div class="kpi"><div class="label">Último acceso operador</div><div class="value" style="font-size:14px;margin-top:8px" id="kpiLastAccess">-</div></div>
+              </div>
               <div style="margin-top:14px">
                 <div class="inline" style="justify-content:space-between;align-items:center">
                   <h3 style="margin:0">Actividad reciente</h3>
@@ -220,6 +244,10 @@
           </div>
 
           ${isAdmin?`
+            </div>
+          </div>
+
+          ${isConsultoria?`
             <div class="card">
               <h3 style="margin-top:0">Gestión de usuarios</h3>
               <div class="row">
@@ -228,6 +256,7 @@
               </div>
               <div class="row">
                 <div><label>Rol</label><select id="uRole"><option value="consultor">Consultor</option><option value="analista">Analista</option><option value="admin">Admin</option></select></div>
+                <div><label>Rol</label><select id="uRole"><option value="operator">Operador</option><option value="consultoria">Consultoría</option></select></div>
                 <div style="display:flex;align-items:flex-end"><button onclick="saveUserAccess()">Guardar usuario</button></div>
               </div>
               <div id="usersList" class="small"></div>
@@ -247,6 +276,10 @@
       `
 
       if(isAdmin) loadUsersAdmin()
+        <div class="card"><div id="boardContainer"></div></div>
+      `
+
+      if(isConsultoria) loadUsersAdmin()
       loadTickets()
       loadDashboard()
     }
@@ -317,6 +350,7 @@
                 <div class="meta">Asignado a: ${htmlEscape(t.assignedTo||"Sin asignar")}</div>
                 ${renderTicketActions(t.id, status)}
                 ${renderComments(t.id, t.comments || {})}
+                ${renderTicketActions(t.id, status)}
               </div>
             `).join("") || `<p class="small">Sin tickets</p>`}
           </div>
@@ -367,6 +401,16 @@
             <input id="comment-${id}" placeholder="Escribí un comentario" style="margin:0" />
             <button class="ghost" onclick="addComment('${id}')">Comentar</button>
           </div>
+        </div>
+      const canDelete = currentRole === "consultoria"
+
+      return `
+        <div class="inline" style="margin-top:8px">
+          <select id="next-${id}" style="margin:0;min-width:160px">
+            ${options}
+          </select>
+          <button class="ghost" onclick="moveTicket('${id}')">Mover</button>
+          ${canDelete?`<button class="danger" onclick="deleteTicket('${id}')">Borrar</button>`:""}
         </div>
       `
     }
@@ -470,6 +514,7 @@
         })
 
         const ops = users.filter(u => u && u.role === "analista")
+        const ops = users.filter(u => u && u.role === "operator")
         const last = ops.map(u => u.lastAccessAt ? new Date(u.lastAccessAt).getTime() : 0).sort((a,b)=>b-a)[0] || 0
 
         document.getElementById("kpiTotal").innerText = total
@@ -493,6 +538,7 @@
                   <div class="feedMeta">${htmlEscape(it.email || "sin-usuario")} · ${it.timestampIso ? new Date(it.timestampIso).toLocaleString() : ""}</div>
                 </div>
                 <span class="badge ${it.role === "admin" ? "ok" : "off"}">${htmlEscape(it.role || "-")}</span>
+                <span class="badge ${it.role === "consultoria" ? "ok" : "off"}">${htmlEscape(it.role || "-")}</span>
               </div>
             </div>
           `).join("")
@@ -503,6 +549,7 @@
     async function init(){
       renderLogin()
       await ensureDefaultUsers()
+      await ensureConsultoria()
     }
 
     init()
