@@ -29,7 +29,7 @@
     .small{font-size:12px;color:var(--muted)}
     .row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 220px}
     .inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-    .grid{display:grid;grid-template-columns:1fr;gap:12px}
+    .grid{display:grid;grid-template-columns:1fr;gap:12px;align-items:stretch}
     @media (min-width:980px){.grid{grid-template-columns:1.2fr .9fr}}
     .badge{font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid var(--stroke)}
     .badge.ok{color:#86efac;border-color:rgba(34,197,94,.45);background:rgba(34,197,94,.12)}
@@ -59,6 +59,8 @@
     .modalBack{position:fixed;inset:0;background:rgba(2,6,23,.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:16px;z-index:99}
     .modal{width:min(760px,100%);max-height:90vh;overflow:auto}
     .hidden{display:none!important}
+    .urgentBtn{background:linear-gradient(135deg,#f59e0b,#ef4444);box-shadow:0 6px 18px rgba(239,68,68,.35)}
+    .urgentFlag{font-size:11px;color:#fecaca;margin-top:6px}
     .toast{position:fixed;right:16px;bottom:16px;z-index:120;min-width:260px;max-width:420px;padding:10px 12px;border-radius:10px;border:1px solid var(--stroke);background:rgba(15,23,42,.95);box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:13px}
     .toast.ok{border-color:rgba(22,163,74,.65)}
     .toast.error{border-color:rgba(220,38,38,.65)}
@@ -126,6 +128,7 @@
     var ticketFilterClient = globalThis.ticketFilterClient || ""
     var cachedClients = globalThis.cachedClients || []
     var cachedConsultors = globalThis.cachedConsultors || []
+    var consultorRefreshTimer = globalThis.consultorRefreshTimer || null
 
     const STATUS = {
       unassigned: "Pendientes de asignar",
@@ -137,9 +140,10 @@
 
     const SHEET_ID = "1tNNtG2Asr1ds1_-3P6PmVgsHbdlhhfrV7GhWJDiTO1Q"
     const SHEET_GID = "0"
+    const SHEET_ADMINS_NAME = "BD_ADMINS"
     // Reemplazar por tu URL de Web App de Apps Script para habilitar escritura en la hoja.
     // Debe aceptar JSON { action, payload } para createTicket/updateTicket/deleteTicket.
-    const SHEET_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzWhfV8zFypK4WdO89BfTA_Nhi94ABQ2qFWP-xsuX7pIeZZ-brHEH5bX-UyqgQJByX9zg/exec"
+    const SHEET_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbyRLv3IqWF7O-045AsuEQzqOn2FstgF8X3TfBXQB6eSLJr44u6nm3QUQH_mtBaSjVYUhw/exec"
     let cachedTickets = []
 
     function emailKey(email){ return (email||"").toLowerCase().replace(/[.#$/\[\]]/g, "_") }
@@ -175,12 +179,65 @@
     }
 
 
+    async function fetchAdminsRowsFromSheet(){
+      const query = encodeURIComponent("select A,B,C,D,E,F,G,H,I,J,K")
+      const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?sheet=${encodeURIComponent(SHEET_ADMINS_NAME)}&tq=${query}`
+      const res = await fetch(url)
+      if(!res.ok) throw new Error("No se pudo leer BD_ADMINS")
+      const gviz = parseGvizJson(await res.text())
+      const rows = gviz?.table?.rows || []
+      return rows.map(r => (r.c || []).map(c => c?.v ?? ""))
+    }
+
+    async function fetchUsersFromSheet(){
+      const rows = await fetchAdminsRowsFromSheet()
+      return rows
+        .filter(cols => String(cols[0]||"").toLowerCase() === "user")
+        .map(cols => ({
+          key: String(cols[1]||""),
+          email: String(cols[2]||""),
+          password: String(cols[3]||""),
+          role: String(cols[4]||"consultor"),
+          active: String(cols[5]||"true") !== "false",
+          createdAt: String(cols[6]||""),
+          createdBy: String(cols[7]||""),
+          lastAccessAt: String(cols[8]||"")
+        }))
+    }
+
+    async function fetchClientsFromSheet(){
+      const rows = await fetchAdminsRowsFromSheet()
+      return rows
+        .filter(cols => String(cols[0]||"").toLowerCase() === "client")
+        .map(cols => ({ key: String(cols[1]||""), name: String(cols[9]||"") }))
+        .filter(c => c.name)
+    }
+
+    async function adminWrite(action, payload){
+      return sheetWrite(action, payload)
+    }
+
+    function startConsultorAutoRefresh(){
+      if(consultorRefreshTimer) clearInterval(consultorRefreshTimer)
+      consultorRefreshTimer = setInterval(() => {
+        loadTickets()
+        loadDashboard()
+      }, 8000)
+      globalThis.consultorRefreshTimer = consultorRefreshTimer
+    }
+
+    function stopConsultorAutoRefresh(){
+      if(consultorRefreshTimer) clearInterval(consultorRefreshTimer)
+      consultorRefreshTimer = null
+      globalThis.consultorRefreshTimer = null
+    }
+
     async function loadFilterOptions(){
-      const users = Object.values((await db.ref("users_by_email").once("value")).val() || {})
+      const users = await fetchUsersFromSheet()
       cachedConsultors = users.filter(u => u && u.role === "consultor" && u.active !== false).map(u => (u.email||"").toLowerCase())
       globalThis.cachedConsultors = cachedConsultors
 
-      const clients = Object.values((await db.ref("clients").once("value")).val() || {})
+      const clients = await fetchClientsFromSheet()
       cachedClients = clients.map(c => String(c.name||"").trim()).filter(Boolean).sort((a,b)=>a.localeCompare(b,'es'))
       globalThis.cachedClients = cachedClients
 
@@ -206,7 +263,7 @@
       if(currentRole !== "admin") return alert("Solo admin puede agregar clientes")
       const name = (document.getElementById("cName")?.value || "").trim()
       if(!name) return alert("Ingresá un cliente")
-      await db.ref("clients").child(emailKey(name)).set({ name, createdAt: new Date().toISOString(), createdBy: currentUser.email })
+      await adminWrite("upsertClient", { key: emailKey(name), name, createdAt: new Date().toISOString(), createdBy: currentUser.email })
       const input = document.getElementById("cName")
       if(input) input.value = ""
       showToast("Cliente agregado", "ok")
@@ -217,7 +274,7 @@
     async function deleteClient(key){
       if(currentRole !== "admin") return alert("Solo admin puede eliminar clientes")
       if(!confirm("¿Eliminar cliente?")) return
-      await db.ref("clients").child(key).remove()
+      await adminWrite("deleteClient", { key })
       showToast("Cliente eliminado", "ok")
       await loadClientsAdmin()
       await loadFilterOptions()
@@ -226,14 +283,13 @@
     async function loadClientsAdmin(){
       const container = document.getElementById("clientsList")
       if(!container) return
-      const data = (await db.ref("clients").once("value")).val() || {}
-      const items = Object.entries(data)
-      if(!items.length){ container.innerHTML = "Sin clientes"; return }
-      container.innerHTML = items.map(([k,c]) => `<div class="inline" style="justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(148,163,184,.15)"><span>${htmlEscape(c.name||"")}</span><button class="danger" onclick="deleteClient('${k}')">Eliminar</button></div>`).join("")
+      const clients = await fetchClientsFromSheet()
+      if(!clients.length){ container.innerHTML = "Sin clientes"; return }
+      container.innerHTML = clients.map(c => `<div class="inline" style="justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(148,163,184,.15)"><span>${htmlEscape(c.name||"")}</span><button class="danger" onclick="deleteClient('${c.key}')">Eliminar</button></div>`).join("")
     }
 
     async function fetchTicketsFromSheet(){
-      const query = encodeURIComponent("select A,B,C,D,E,F,G,H,I,J,K,L,M")
+      const query = encodeURIComponent("select A,B,C,D,E,F,G,H,I,J,K,L,M,N")
       const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${SHEET_GID}&tq=${query}`
       const res = await fetch(url)
       if(!res.ok) throw new Error("No se pudo leer la planilla")
@@ -256,7 +312,8 @@
           createdBy: String(cols[9]||""),
           updatedAt: String(cols[10]||""),
           updatedBy: String(cols[11]||""),
-          deadline: String(cols[12]||"")
+          deadline: String(cols[12]||""),
+          urgentRequested: String(cols[13]||"false") === "true"
         }))
     }
 
@@ -298,11 +355,12 @@
     }
 
     async function ensureDefaultUsers(){
+      const users = await fetchUsersFromSheet()
       for(const user of DEFAULT_USERS){
-        const ref = db.ref("users_by_email").child(emailKey(user.email))
-        const snap = await ref.once("value")
-        if(!snap.exists()){
-          await ref.set({
+        const exists = users.some(u => (u.email||"").toLowerCase() === user.email.toLowerCase())
+        if(!exists){
+          await adminWrite("upsertUser", {
+            key: emailKey(user.email),
             email: user.email,
             password: user.password,
             role: user.role,
@@ -315,8 +373,8 @@
     }
 
     async function getUserFromDb(email){
-      const snap = await db.ref("users_by_email").child(emailKey(email)).once("value")
-      return snap.val()
+      const users = await fetchUsersFromSheet()
+      return users.find(u => (u.email||"").toLowerCase() === (email||"").toLowerCase()) || null
     }
 
     function renderLogin(){
@@ -343,12 +401,12 @@
       currentUser = { email: user.email }
       currentRole = user.role
 
-      await db.ref("users_by_email").child(emailKey(email)).update({ lastAccessAt: new Date().toISOString() })
+      await adminWrite("upsertUser", { ...user, key: emailKey(email), lastAccessAt: new Date().toISOString() })
       logActivity("login", { userAgent: navigator.userAgent })
       renderApp()
     }
 
-    function logout(){ currentUser = null; currentRole = null; renderLogin() }
+    function logout(){ stopConsultorAutoRefresh(); currentUser = null; currentRole = null; renderLogin() }
 
     function renderApp(){
       const isAdmin = currentRole === "admin"
@@ -414,9 +472,8 @@
             <div class="card">
               <div class="inline" style="justify-content:space-between;align-items:center">
                 <h3 style="margin:0">Actividad de comentarios</h3>
-                <button class="ghost" onclick="loadDashboard()">Actualizar</button>
-              </div>
-              <div id="consultorCommentsActivity" style="margin-top:10px"></div>
+                </div>
+              <div id="consultorCommentsActivity" style="margin-top:10px;max-height:300px;overflow-y:auto;padding-right:4px"></div>
             </div>
           ` : "<div></div>"}
         </div>
@@ -437,6 +494,7 @@
       `
 
       if(isAdmin){ loadUsersAdmin(); loadClientsAdmin() }
+      if(currentRole === "consultor") startConsultorAutoRefresh(); else stopConsultorAutoRefresh()
       loadFilterOptions()
       loadTickets()
       loadDashboard()
@@ -481,10 +539,11 @@
       }
 
       await sheetWrite("createTicket", ticket)
+      cachedTickets.unshift(ticket)
+      renderTicketsFromData(cachedTickets)
       logActivity("ticket_creado", { title, client, code })
       closeTicketModal()
-      await loadTickets()
-      await loadDashboard()
+      loadDashboard()
       showToast(`Ticket ${code} creado correctamente`, "ok")
     }
 
@@ -501,6 +560,12 @@
         return
       }
       cachedTickets = data
+      renderTicketsFromData(data)
+    }
+
+    function renderTicketsFromData(data){
+      const container = document.getElementById("boardContainer")
+      if(!container) return
       const grouped = { unassigned: [], todo: [], doing: [], recurrent: [], done: [] }
 
       Object.entries(data).forEach(([_, t]) => {
@@ -534,7 +599,7 @@
             <h5><span class="ticketCode">${htmlEscape(ticket.id||"-")}</span>${htmlEscape(ticket.title||"-")}</h5>
             <div class="meta">Asignado a: ${htmlEscape(ticket.assignedTo||"Sin asignar")}</div>
             <div class="meta deadline">Deadline: ${ticket.deadline ? htmlEscape(ticket.deadline) : "Sin fecha"}</div>
-            <button class="ghost" style="margin-top:8px" onclick="openTicketDetailModal('${ticket.id}')">Ver detalle</button>
+            <div class="inline" style="margin-top:8px"><button class="ghost" onclick="openTicketDetailModal('${ticket.id}')">Ver detalle</button><button class="urgentBtn" onclick="markUrgent('${ticket.id}')">🚨 URGENTE</button></div>${ticket.urgentRequested?`<div class="urgentFlag">Marcado como urgente</div>`:""}
           </div>
         `
       }
@@ -625,6 +690,20 @@
       `
     }
 
+    async function markUrgent(id){
+      const ticket = cachedTickets.find(t => t.id === id)
+      if(!ticket) return
+      const updated = { ...ticket, urgentRequested: true, updatedAt: new Date().toISOString(), updatedBy: currentUser.email }
+      showToast("Marcando urgente...", "info", 1400)
+      await sheetWrite("updateTicket", updated)
+      const ix = cachedTickets.findIndex(t => t.id === id)
+      if(ix >= 0) cachedTickets[ix] = updated
+      renderTicketsFromData(cachedTickets)
+      await logActivity("ticket_urgente", { ticketId: id, title: ticket.title })
+      loadDashboard()
+      showToast("Ticket marcado como urgente", "ok")
+    }
+
     async function moveTicket(id){
       if(!(currentRole === "admin" || currentRole === "analista")) return alert("No tenés permisos para mover tickets")
       const next = document.getElementById(`next-${id}`)?.value
@@ -671,12 +750,15 @@
       const updated = { ...ticket, comments, updatedAt: new Date().toISOString(), updatedBy: currentUser.email }
 
       await sheetWrite("updateTicket", updated)
+      const ix = cachedTickets.findIndex(t => t.id === id)
+      if(ix >= 0) cachedTickets[ix] = updated
+      renderTicketsFromData(cachedTickets)
       const input = document.getElementById(`comment-${id}`)
       if(input) input.value = ""
       logActivity("ticket_comentario", { ticketId: id })
-      await loadTickets()
       const detailOpen = !document.getElementById("ticketDetailModal").classList.contains("hidden")
       if(detailOpen) openTicketDetailModal(id)
+      loadDashboard()
       showToast("Comentario enviado correctamente", "ok")
     }
 
@@ -697,39 +779,38 @@
       const role = document.getElementById("uRole").value
       if(!email || !password) return alert("Completá email y contraseña")
 
-      await db.ref("users_by_email").child(emailKey(email)).set({
+      await adminWrite("upsertUser", {
+        key: emailKey(email),
         email, password, role, active: true,
         createdAt: new Date().toISOString(), createdBy: currentUser.email
       })
       alert("Usuario creado correctamente")
     }
 
-    function loadUsersAdmin(){
+    async function loadUsersAdmin(){
       const container = document.getElementById("usersList")
       if(!container) return
-
-      db.ref("users_by_email").off()
-      db.ref("users_by_email").on("value", snap => {
-        const items = Object.entries(snap.val() || {})
-        if(!items.length){ container.innerHTML = "Sin usuarios cargados"; return }
-
-        container.innerHTML = items.map(([k,u]) => {
-          const isSelf = (u.email||"").toLowerCase() === (currentUser.email||"").toLowerCase()
-          return `<div class="card" style="padding:10px;margin:6px 0"><div class="inline" style="justify-content:space-between"><div><strong>${htmlEscape(u.email||"-")}</strong><br><span class="small">Rol: ${htmlEscape(u.role||"-")} · Clave: Oculta</span></div><div class="inline"><button class="danger" ${isSelf?"disabled":""} onclick="deleteUserAccess('${k}','${u.email||''}')">Eliminar</button></div></div></div>`
-        }).join("")
-      })
+      const users = await fetchUsersFromSheet()
+      if(!users.length){ container.innerHTML = "Sin usuarios cargados"; return }
+      container.innerHTML = users.map(u => {
+        const key = emailKey(u.email)
+        const isSelf = (u.email||"").toLowerCase() === (currentUser.email||"").toLowerCase()
+        return `<div class="card" style="padding:10px;margin:6px 0"><div class="inline" style="justify-content:space-between"><div><strong>${htmlEscape(u.email||"-")}</strong><br><span class="small">Rol: ${htmlEscape(u.role||"-")} · Clave: Oculta</span></div><div class="inline"><button class="danger" ${isSelf?"disabled":""} onclick="deleteUserAccess('${key}','${u.email||''}')">Eliminar</button></div></div></div>`
+      }).join("")
     }
 
     async function deleteUserAccess(key,email){
       if(currentRole !== "admin") return alert("Solo admin puede eliminar usuarios")
       if(!confirm(`¿Eliminar acceso para ${email}?`)) return
-      await db.ref("users_by_email").child(key).remove()
+      await adminWrite("deleteUser", { key })
+      if(currentRole === "admin") loadUsersAdmin()
+      await loadFilterOptions()
     }
 
     async function loadDashboard(){
       try{
         const ticketsArr = await fetchTicketsFromSheet()
-        const users = Object.values((await db.ref("users_by_email").once("value")).val() || {})
+        const users = await fetchUsersFromSheet()
         const activity = Object.values((await db.ref("activity_logs").limitToLast(10).once("value")).val() || {})
 
         let total = 0, unassigned = 0, doing = 0, done = 0
@@ -757,7 +838,9 @@
           const commentsContainer = document.getElementById("consultorCommentsActivity")
           if(commentsContainer){
             const onlyMine = ticketsArr.filter(t => (t.createdBy||"") === currentUser.email)
+            const roleByEmail = Object.fromEntries(users.map(u => [String(u.email||"").toLowerCase(), u.role]))
             const comments = onlyMine.flatMap(t => Object.values(t.comments||{}).map(c => ({ ticketId: t.id, ticketTitle: t.title, ...c })))
+              .filter(c => { const r = roleByEmail[String(c.author||"").toLowerCase()]; return r === "admin" || r === "analista" })
               .sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0))
             commentsContainer.innerHTML = comments.length
               ? comments.map(c => `<div class="feedItem"><div class="feedType">${htmlEscape(c.author||"-")}</div><div class="feedMeta">${htmlEscape(c.message||"")}<br>(${htmlEscape(c.ticketId||"-")} · ${htmlEscape(c.ticketTitle||"-")}) ${c.createdAt ? "· " + new Date(c.createdAt).toLocaleString() : ""}</div></div>`).join("")
@@ -789,11 +872,11 @@
 
     async function ensureDefaultClients(){
       const samples = ["Cliente de prueba 1.", "Cliente de prueba 2."]
+      const clients = await fetchClientsFromSheet()
       for(const name of samples){
-        const ref = db.ref("clients").child(emailKey(name))
-        const snap = await ref.once("value")
-        if(!snap.exists()){
-          await ref.set({ name, createdAt: new Date().toISOString(), createdBy: "system" })
+        const exists = clients.some(c => c.name === name)
+        if(!exists){
+          await adminWrite("upsertClient", { key: emailKey(name), name, createdAt: new Date().toISOString(), createdBy: "system" })
         }
       }
     }

@@ -10,7 +10,7 @@
  *
  * Estructura esperada (Sheet gid=0):
  * A:id | B:title | C:description | D:priority | E:client | F:status |
- * G:assignedTo | H:comments(JSON) | I:createdAt | J:createdBy | K:updatedAt | L:updatedBy | M:deadline
+ * G:assignedTo | H:comments(JSON) | I:createdAt | J:createdBy | K:updatedAt | L:updatedBy | M:deadline | N:urgentRequested
  */
 
 const DEFAULT_GID = '0';
@@ -50,6 +50,31 @@ function doPost(e) {
       const row = findTicketRow_(sheet, id);
       if (row > 1) sheet.deleteRow(row);
       return jsonOutput({ ok: true, action, deleted: row > 1 });
+    }
+
+    if (action === 'upsertUser') {
+      upsertAdminRow_(sheet, 'user', payload.key, {
+        email: payload.email, password: payload.password, role: payload.role, active: payload.active,
+        createdAt: payload.createdAt, createdBy: payload.createdBy, lastAccessAt: payload.lastAccessAt
+      });
+      return jsonOutput({ ok: true, action });
+    }
+
+    if (action === 'deleteUser') {
+      deleteAdminRow_(sheet, 'user', payload.key);
+      return jsonOutput({ ok: true, action });
+    }
+
+    if (action === 'upsertClient') {
+      upsertAdminRow_(sheet, 'client', payload.key, {
+        name: payload.name, createdAt: payload.createdAt, createdBy: payload.createdBy
+      });
+      return jsonOutput({ ok: true, action });
+    }
+
+    if (action === 'deleteClient') {
+      deleteAdminRow_(sheet, 'client', payload.key);
+      return jsonOutput({ ok: true, action });
     }
 
     return jsonOutput({ ok: false, error: `Acción no soportada: ${action}` });
@@ -92,7 +117,7 @@ function getSheetByGid_(gid) {
 function ensureHeader_(sheet) {
   const expected = [
     'id', 'title', 'description', 'priority', 'client', 'status',
-    'assignedTo', 'comments', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy', 'deadline'
+    'assignedTo', 'comments', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy', 'deadline', 'urgentRequested'
   ];
   const firstRow = sheet.getRange(1, 1, 1, expected.length).getValues()[0];
   const hasHeader = firstRow.some(v => String(v || '').trim() !== '');
@@ -126,7 +151,8 @@ function normalizeTicket_(p) {
     createdBy: String(p.createdBy || ''),
     updatedAt: String(p.updatedAt || now),
     updatedBy: String(p.updatedBy || ''),
-    deadline: String(p.deadline || '')
+    deadline: String(p.deadline || ''),
+    urgentRequested: String(!!p.urgentRequested)
   };
 }
 
@@ -136,16 +162,55 @@ function upsertTicket_(sheet, payload, createOnly) {
 
   const rowData = [[
     t.id, t.title, t.description, t.priority, t.client, t.status,
-    t.assignedTo, t.comments, t.createdAt, t.createdBy, t.updatedAt, t.updatedBy, t.deadline
+    t.assignedTo, t.comments, t.createdAt, t.createdBy, t.updatedAt, t.updatedBy, t.deadline, t.urgentRequested
   ]];
 
   const existingRow = findTicketRow_(sheet, t.id);
   if (existingRow > 1) {
     if (createOnly) return;
-    sheet.getRange(existingRow, 1, 1, 13).setValues(rowData);
+    sheet.getRange(existingRow, 1, 1, 14).setValues(rowData);
   } else {
     sheet.appendRow(rowData[0]);
   }
+}
+
+
+function findAdminRow_(sheet, type, key) {
+  const last = sheet.getLastRow();
+  if (last < 2) return -1;
+  const values = sheet.getRange(2, 1, last - 1, 2).getValues();
+  for (let i = 0; i < values.length; i++) {
+    if (String(values[i][0] || '').trim() === type && String(values[i][1] || '').trim() === String(key || '').trim()) return i + 2;
+  }
+  return -1;
+}
+
+function upsertAdminRow_(sheet, type, key, data) {
+  const row = [
+    type,
+    String(key || ''),
+    String(data.email || ''),
+    String(data.password || ''),
+    String(data.role || ''),
+    String(data.active),
+    String(data.createdAt || ''),
+    String(data.createdBy || ''),
+    String(data.lastAccessAt || ''),
+    String(data.name || ''),
+    new Date().toISOString(),
+    '', '', ''
+  ];
+  const existing = findAdminRow_(sheet, type, key);
+  if (existing > 1) {
+    sheet.getRange(existing, 1, 1, 14).setValues([row]);
+  } else {
+    sheet.appendRow(row);
+  }
+}
+
+function deleteAdminRow_(sheet, type, key) {
+  const row = findAdminRow_(sheet, type, key);
+  if (row > 1) sheet.deleteRow(row);
 }
 
 function jsonOutput(obj) {
