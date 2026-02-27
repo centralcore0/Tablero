@@ -148,6 +148,20 @@ function findTicketRow_(sheet, id) {
   return -1;
 }
 
+
+function normalizeComments_(value) {
+  if (!value) return '{}';
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return JSON.stringify(parsed || {});
+    } catch (_) {
+      return '{}';
+    }
+  }
+  return JSON.stringify(value);
+}
+
 function normalizeTicket_(p) {
   const now = new Date().toISOString();
   return {
@@ -158,7 +172,7 @@ function normalizeTicket_(p) {
     client: String(p.client || ''),
     status: String(p.status || 'unassigned'),
     assignedTo: String(p.assignedTo || ''),
-    comments: JSON.stringify(p.comments || {}),
+    comments: normalizeComments_(p.comments),
     createdAt: String(p.createdAt || now),
     createdBy: String(p.createdBy || ''),
     updatedAt: String(p.updatedAt || now),

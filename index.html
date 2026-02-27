@@ -129,6 +129,7 @@
     var cachedClients = globalThis.cachedClients || []
     var cachedConsultors = globalThis.cachedConsultors || []
     var consultorRefreshTimer = globalThis.consultorRefreshTimer || null
+    var loginInProgress = false
 
     const STATUS = {
       unassigned: "Pendientes de asignar",
@@ -155,6 +156,13 @@
       const start = raw.indexOf("{")
       const end = raw.lastIndexOf("}")
       return JSON.parse(raw.slice(start, end + 1))
+    }
+
+    function parseCommentsValue(value){
+      if(!value) return {}
+      if(typeof value === "object") return value
+      if(typeof value !== "string") return {}
+      try{ return JSON.parse(value) }catch(_){ return {} }
     }
 
 
@@ -227,7 +235,7 @@
     async function fetchTicketsFromDb(){
       const snap = await db.ref("tickets").once("value")
       const data = snap.val() || {}
-      return Object.entries(data).map(([id,t]) => ({ id, ...t }))
+      return Object.entries(data).map(([dbKey,t]) => ({ ...t, id: t?.id || dbKey, dbKey, comments: parseCommentsValue(t?.comments) }))
     }
 
 
@@ -323,7 +331,7 @@
           client: String(cols[4]||""),
           status: String(cols[5]||"unassigned"),
           assignedTo: String(cols[6]||""),
-          comments: (() => { try{ return JSON.parse(cols[7]||"{}") }catch(_){ return {} } })(),
+          comments: parseCommentsValue(cols[7]),
           createdAt: String(cols[8]||""),
           createdBy: String(cols[9]||""),
           updatedAt: String(cols[10]||""),
@@ -401,26 +409,36 @@
           <p class="small">Acceso por Email + Contraseña.</p>
           <label>Email</label><input id="loginEmail" type="email">
           <label>Contraseña</label><input id="loginPassword" type="password">
-          <button onclick="handleLogin()" style="width:100%">Entrar</button>
+          <button id="loginBtn" onclick="handleLogin()" style="width:100%">Entrar</button>
           <p class="small" style="margin-top:10px">Usuarios iniciales: admin@tablero.local, consultor@tablero.local, analista@tablero.local (clave: 1234)</p>
         </div>`
     }
 
     async function handleLogin(){
+      if(loginInProgress) return
       const email = document.getElementById("loginEmail").value.trim().toLowerCase()
       const password = document.getElementById("loginPassword").value
       if(!email || !password) return alert("Completá email y contraseña")
 
-      const user = await getUserFromDb(email)
-      if(!user || !user.active) return alert("Usuario inexistente o inactivo")
-      if(user.password !== password) return alert("Contraseña incorrecta")
+      loginInProgress = true
+      const btn = document.getElementById("loginBtn")
+      if(btn){ btn.disabled = true; btn.textContent = "Ingresando..." }
 
-      currentUser = { email: user.email }
-      currentRole = user.role
+      try{
+        const user = await getUserFromDb(email)
+        if(!user || !user.active) return alert("Usuario inexistente o inactivo")
+        if(user.password !== password) return alert("Contraseña incorrecta")
 
-      await adminWrite("upsertUser", { ...user, key: emailKey(email), lastAccessAt: new Date().toISOString() })
-      logActivity("login", { userAgent: navigator.userAgent })
-      renderApp()
+        currentUser = { email: user.email }
+        currentRole = user.role
+
+        renderApp()
+        logActivity("login", { userAgent: navigator.userAgent })
+        adminWrite("upsertUser", { ...user, key: emailKey(email), lastAccessAt: new Date().toISOString() }).catch(()=>{})
+      }finally{
+        loginInProgress = false
+        if(btn){ btn.disabled = false; btn.textContent = "Entrar" }
+      }
     }
 
     function logout(){ stopConsultorAutoRefresh(); currentUser = null; currentRole = null; renderLogin() }
@@ -459,6 +477,7 @@
                   <h3 style="margin:0">Actividad reciente</h3>
                   <button class="ghost" onclick="loadDashboard()">Actualizar</button>
                 </div>
+                <div id="urgentAlerts" style="margin-top:10px"></div>
                 <div id="recentActivity" style="margin-top:10px"></div>
               </div>
               ` : ``}
@@ -555,8 +574,9 @@
         updatedBy: currentUser.email
       }
 
-      const ref = await db.ref("tickets").push(ticket)
-      const savedTicket = { ...ticket, id: ref.key }
+      const dbKey = emailKey(code)
+      await db.ref("tickets").child(dbKey).set(ticket)
+      const savedTicket = { ...ticket, dbKey }
       mirrorToSheet("createTicket", savedTicket)
       cachedTickets.unshift(savedTicket)
       renderTicketsFromData(cachedTickets)
@@ -614,7 +634,7 @@
             <h5><span class="ticketCode">${htmlEscape(ticket.id||"-")}</span>${htmlEscape(ticket.title||"-")}</h5>
             <div class="meta">Asignado a: ${htmlEscape(ticket.assignedTo||"Sin asignar")}</div>
             <div class="meta deadline">Deadline: ${ticket.deadline ? htmlEscape(ticket.deadline) : "Sin fecha"}</div>
-            <div class="inline" style="margin-top:8px"><button class="ghost" onclick="openTicketDetailModal('${ticket.id}')">Ver detalle</button><button class="urgentBtn" onclick="markUrgent('${ticket.id}')">🚨 URGENTE</button></div>${ticket.urgentRequested?`<div class="urgentFlag">Marcado como urgente</div>`:""}
+            <div class="inline" style="margin-top:8px"><button class="ghost" onclick="openTicketDetailModal('${ticket.id}')">Ver detalle</button></div>${ticket.urgentRequested?`<div class="urgentFlag">Marcado como urgente</div>`:""}
           </div>
         `
       }
@@ -648,6 +668,7 @@
         <div><label>Cliente/Área</label><input value="${htmlEscape(ticket.client||"")}" disabled></div>
         <div><label>Asignado a</label><input value="${htmlEscape(ticket.assignedTo||"Sin asignar")}" disabled></div>
         <div><label>Deadline</label><input value="${htmlEscape(ticket.deadline||"")}" disabled></div>
+        ${currentRole === "consultor" ? `<div class="inline" style="margin-top:6px">${ticket.urgentRequested ? `<span class="urgentFlag">Marcado como urgente</span>` : `<button class="urgentBtn" onclick="markUrgent('${ticket.id}')">🚨 Marcar urgente</button>`}</div>` : ticket.urgentRequested ? `<div class="urgentFlag">Marcado como urgente</div>` : ""}
         ${renderComments(id, ticket.comments || {})}
       `
       document.getElementById("ticketDetailModal").classList.remove("hidden")
@@ -708,9 +729,10 @@
     async function markUrgent(id){
       const ticket = cachedTickets.find(t => t.id === id)
       if(!ticket) return
+      if(ticket.urgentRequested) return
       const updated = { ...ticket, urgentRequested: true, updatedAt: new Date().toISOString(), updatedBy: currentUser.email }
       showToast("Marcando urgente...", "info", 1400)
-      await db.ref("tickets").child(id).update(updated)
+      await db.ref("tickets").child(ticket.dbKey || emailKey(ticket.id)).update(updated)
       mirrorToSheet("updateTicket", { id, ...updated })
       const ix = cachedTickets.findIndex(t => t.id === id)
       if(ix >= 0) cachedTickets[ix] = updated
@@ -729,7 +751,7 @@
       const ticket = cachedTickets.find(t => t.id === id)
       if(!ticket) return
       const updated = { ...ticket, status: next, updatedAt: new Date().toISOString(), updatedBy: currentUser.email }
-      await db.ref("tickets").child(id).update(updated)
+      await db.ref("tickets").child(ticket.dbKey || emailKey(ticket.id)).update(updated)
       mirrorToSheet("updateTicket", { id, ...updated })
       logActivity("ticket_movido", { ticketId: id, nextStatus: next })
       loadTickets()
@@ -749,7 +771,7 @@
       const ticket = cachedTickets.find(t => t.id === id)
       if(!ticket) return
       const updated = { ...ticket, assignedTo, updatedAt: new Date().toISOString(), updatedBy: currentUser.email }
-      await db.ref("tickets").child(id).update(updated)
+      await db.ref("tickets").child(ticket.dbKey || emailKey(ticket.id)).update(updated)
       mirrorToSheet("updateTicket", { id, ...updated })
       logActivity("ticket_asignado", { ticketId: id, assignedTo })
       loadTickets()
@@ -767,7 +789,7 @@
       comments[generateId()] = { message, author: currentUser.email, createdAt: new Date().toISOString() }
       const updated = { ...ticket, comments, updatedAt: new Date().toISOString(), updatedBy: currentUser.email }
 
-      await db.ref("tickets").child(id).update(updated)
+      await db.ref("tickets").child(ticket.dbKey || emailKey(ticket.id)).update(updated)
       mirrorToSheet("updateTicket", { id, ...updated })
       const ix = cachedTickets.findIndex(t => t.id === id)
       if(ix >= 0) cachedTickets[ix] = updated
@@ -784,7 +806,8 @@
     async function deleteTicket(id){
       if(!confirm("¿Seguro que querés borrar este ticket?")) return
       showToast("Eliminando ticket...", "info", 1600)
-      await db.ref("tickets").child(id).remove()
+      const ticket = cachedTickets.find(t => t.id === id)
+      await db.ref("tickets").child(ticket?.dbKey || emailKey(id)).remove()
       mirrorToSheet("deleteTicket", { id })
       logActivity("ticket_borrado", { ticketId: id })
       loadTickets()
@@ -829,11 +852,12 @@
     async function loadDashboard(){
       try{
         const ticketsArr = await fetchTicketsFromDb()
+        const normalizedTickets = ticketsArr.map(t => ({ ...t, comments: parseCommentsValue(t.comments) }))
         const users = Object.values((await db.ref("users_by_email").once("value")).val() || {})
         const activity = Object.values((await db.ref("activity_logs").limitToLast(10).once("value")).val() || {})
 
         let total = 0, unassigned = 0, doing = 0, done = 0
-        ticketsArr.forEach(t => {
+        normalizedTickets.forEach(t => {
           total++
           if(t.status === "unassigned") unassigned++
           if(t.status === "doing") doing++
@@ -853,10 +877,18 @@
           lastAccessEl.innerText = last ? new Date(last).toLocaleString() : "Sin accesos"
         }
 
+
+        const urgentContainer = document.getElementById("urgentAlerts")
+        if(urgentContainer){
+          const urgentTickets = normalizedTickets.filter(t => t.urgentRequested)
+          urgentContainer.innerHTML = urgentTickets.length
+            ? `<div class="feedItem" style="border-color:rgba(239,68,68,.55)"><div class="feedType">🚨 Alertas urgentes (${urgentTickets.length})</div>${urgentTickets.map(t => `<div class="feedMeta">${htmlEscape(t.id||"-")} · ${htmlEscape(t.title||"-")} · ${htmlEscape(t.client||"-")}</div>`).join("")}</div>`
+            : `<div class="small">Sin alertas urgentes.</div>`
+        }
         if(currentRole === "consultor") {
           const commentsContainer = document.getElementById("consultorCommentsActivity")
           if(commentsContainer){
-            const onlyMine = ticketsArr.filter(t => (t.createdBy||"") === currentUser.email)
+            const onlyMine = normalizedTickets.filter(t => (t.createdBy||"") === currentUser.email)
             const roleByEmail = Object.fromEntries(users.map(u => [String(u.email||"").toLowerCase(), u.role]))
             const comments = onlyMine.flatMap(t => Object.values(t.comments||{}).map(c => ({ ticketId: t.id, ticketTitle: t.title, ...c })))
               .filter(c => { const r = roleByEmail[String(c.author||"").toLowerCase()]; return r === "admin" || r === "analista" })
