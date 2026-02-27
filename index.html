@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Tablero de Tickets</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Ctext y=%2750%27 font-size=%2750%27%3E🎫%3C/text%3E%3C/svg%3E" />
 
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
@@ -28,13 +29,14 @@
     .small{font-size:12px;color:var(--muted)}
     .row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 220px}
     .inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-    .grid{display:grid;grid-template-columns:1fr;gap:12px}
+    .grid{display:grid;grid-template-columns:1fr;gap:12px;align-items:stretch}
     @media (min-width:980px){.grid{grid-template-columns:1.2fr .9fr}}
     .badge{font-size:11px;padding:3px 8px;border-radius:999px;border:1px solid var(--stroke)}
     .badge.ok{color:#86efac;border-color:rgba(34,197,94,.45);background:rgba(34,197,94,.12)}
     .badge.off{color:#fca5a5;border-color:rgba(239,68,68,.45);background:rgba(239,68,68,.12)}
     .searchWrap{position:relative}.searchWrap input{padding-left:36px;margin:0}.searchWrap:before{content:'🔎';position:absolute;left:11px;top:8px;opacity:.65}
     .kpiGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+    .kpiGrid.singleRow{grid-template-columns:repeat(5,minmax(0,1fr))!important}
     @media (max-width:900px){.kpiGrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
     .kpi{padding:12px;border:1px solid var(--stroke);border-radius:14px;background:rgba(2,6,23,.35)}
     .kpi .label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
@@ -46,15 +48,22 @@
 
     .boardWrap{overflow-x:auto;overflow-y:visible;padding-bottom:4px}
     .board{display:grid;grid-template-columns:repeat(5,minmax(260px,1fr));gap:12px;overflow:visible;align-items:start}
-    .column{background:rgba(2,6,23,.35);border:1px solid var(--stroke);border-radius:12px;padding:10px;min-height:220px}
+    .column{background:rgba(2,6,23,.35);border:1px solid var(--stroke);border-radius:12px;padding:10px;min-height:220px;height:100%;display:flex;flex-direction:column}
     .column h4{margin:4px 0 10px;font-size:14px;text-transform:uppercase;color:#cbd5e1;letter-spacing:.3px}
     .ticket{background:rgba(15,23,42,.8);border:1px solid rgba(148,163,184,.2);border-radius:10px;padding:10px;margin-bottom:8px}
     .ticket h5{margin:0 0 8px;font-size:14px}
+    .ticketCode{font-size:11px;color:#94a3b8;font-weight:600;margin-right:6px}
+    .deadline{color:#f87171}
     .ticket p{margin:0 0 8px;font-size:13px;color:#cbd5e1}
     .ticket .meta{font-size:11px;color:var(--muted)}
     .modalBack{position:fixed;inset:0;background:rgba(2,6,23,.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:16px;z-index:99}
     .modal{width:min(760px,100%);max-height:90vh;overflow:auto}
     .hidden{display:none!important}
+    .urgentBtn{background:linear-gradient(135deg,#f59e0b,#ef4444);box-shadow:0 6px 18px rgba(239,68,68,.35)}
+    .urgentFlag{font-size:11px;color:#fecaca;margin-top:6px}
+    .toast{position:fixed;right:16px;bottom:16px;z-index:120;min-width:260px;max-width:420px;padding:10px 12px;border-radius:10px;border:1px solid var(--stroke);background:rgba(15,23,42,.95);box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:13px}
+    .toast.ok{border-color:rgba(22,163,74,.65)}
+    .toast.error{border-color:rgba(220,38,38,.65)}
   </style>
 </head>
 <body>
@@ -72,12 +81,25 @@
         <div><label>Prioridad</label><select id="tPriority"><option value="Baja">Baja</option><option value="Media">Media</option><option value="Alta">Alta</option></select></div>
       </div>
       <div><label>Detalle</label><textarea id="tDescription"></textarea></div>
-      <div><label>Cliente/Área</label><input id="tClient" /></div>
+      <div class="row">
+        <div><label>Cliente/Área</label><select id="tClient"></select></div>
+        <div><label>Deadline</label><input id="tDeadline" type="date" onkeydown="return false" onfocus="this.showPicker && this.showPicker()" /></div>
+      </div>
 
       <div class="inline" style="justify-content:flex-end">
         <button onclick="saveTicket()">Crear ticket</button>
         <button class="secondary" onclick="closeTicketModal()">Cancelar</button>
       </div>
+    </div>
+  </div>
+
+  <div id="ticketDetailModal" class="modalBack hidden">
+    <div class="card modal">
+      <div class="inline" style="justify-content:space-between;margin-bottom:8px">
+        <h3 style="margin:0">Detalle de ticket</h3>
+        <button class="secondary" onclick="closeTicketDetailModal()">Cerrar</button>
+      </div>
+      <div id="ticketDetailContent"></div>
     </div>
   </div>
 
@@ -99,9 +121,14 @@
       { email: "analista@tablero.local", password: "1234", role: "analista" }
     ]
 
-    let currentUser = null
-    let currentRole = null
-    let ticketSearchTerm = ""
+    var currentUser = globalThis.currentUser || null
+    var currentRole = globalThis.currentRole || null
+    var ticketSearchTerm = globalThis.ticketSearchTerm || ""
+    var ticketFilterConsultor = globalThis.ticketFilterConsultor || ""
+    var ticketFilterClient = globalThis.ticketFilterClient || ""
+    var cachedClients = globalThis.cachedClients || []
+    var cachedConsultors = globalThis.cachedConsultors || []
+    var consultorRefreshTimer = globalThis.consultorRefreshTimer || null
 
     const STATUS = {
       unassigned: "Pendientes de asignar",
@@ -111,8 +138,225 @@
       done: "Finalizadas"
     }
 
+    const SHEET_ID = "1tNNtG2Asr1ds1_-3P6PmVgsHbdlhhfrV7GhWJDiTO1Q"
+    const SHEET_GID = "0"
+    const SHEET_TICKETS_NAME = "BD"
+    const SHEET_ADMINS_NAME = "BD_ADMINS"
+    // Reemplazar por tu URL de Web App de Apps Script para habilitar escritura en la hoja.
+    // Debe aceptar JSON { action, payload } para createTicket/updateTicket/deleteTicket.
+    const SHEET_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbyRLv3IqWF7O-045AsuEQzqOn2FstgF8X3TfBXQB6eSLJr44u6nm3QUQH_mtBaSjVYUhw/exec"
+    let cachedTickets = []
+
     function emailKey(email){ return (email||"").toLowerCase().replace(/[.#$/\[\]]/g, "_") }
     function htmlEscape(v){ return String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;") }
+    function generateId(){ return (crypto?.randomUUID?.() || `tk_${Date.now()}_${Math.random().toString(36).slice(2,8)}`) }
+    function parseGvizJson(text){
+      const raw = text.replace(/^\/\/O_o\s*\n/, "")
+      const start = raw.indexOf("{")
+      const end = raw.lastIndexOf("}")
+      return JSON.parse(raw.slice(start, end + 1))
+    }
+
+
+    function showToast(message, type="info", keepMs=2200){
+      const old = document.getElementById("globalToast")
+      if(old) old.remove()
+      const el = document.createElement("div")
+      el.id = "globalToast"
+      el.className = `toast ${type}`
+      el.textContent = message
+      document.body.appendChild(el)
+      setTimeout(()=>{ if(el.parentNode) el.remove() }, keepMs)
+    }
+
+    function buildTicketCode(list){
+      const max = (list||[]).reduce((acc, t) => {
+        const m = String(t.id||"").match(/^TAO-(\d+)$/)
+        if(!m) return acc
+        return Math.max(acc, Number(m[1]))
+      }, 0)
+      const next = max + 1
+      return `TAO-${String(next).padStart(2,"0")}`
+    }
+
+
+    async function fetchAdminsRowsFromSheet(){
+      const query = encodeURIComponent("select A,B,C,D,E,F,G,H,I,J,K")
+      const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?sheet=${encodeURIComponent(SHEET_ADMINS_NAME)}&tq=${query}`
+      const res = await fetch(url)
+      if(!res.ok) throw new Error("No se pudo leer BD_ADMINS")
+      const gviz = parseGvizJson(await res.text())
+      const rows = gviz?.table?.rows || []
+      return rows.map(r => (r.c || []).map(c => c?.v ?? ""))
+    }
+
+    async function fetchUsersFromSheet(){
+      const rows = await fetchAdminsRowsFromSheet()
+      return rows
+        .filter(cols => String(cols[0]||"").toLowerCase() === "user")
+        .map(cols => ({
+          key: String(cols[1]||""),
+          email: String(cols[2]||""),
+          password: String(cols[3]||""),
+          role: String(cols[4]||"consultor"),
+          active: String(cols[5]||"true") !== "false",
+          createdAt: String(cols[6]||""),
+          createdBy: String(cols[7]||""),
+          lastAccessAt: String(cols[8]||"")
+        }))
+    }
+
+    async function fetchClientsFromSheet(){
+      const rows = await fetchAdminsRowsFromSheet()
+      return rows
+        .filter(cols => String(cols[0]||"").toLowerCase() === "client")
+        .map(cols => ({ key: String(cols[1]||""), name: String(cols[2]||"") }))
+        .filter(c => c.name)
+    }
+
+    async function adminWrite(action, payload){
+      return sheetWrite(action, payload)
+    }
+
+    function mirrorToSheet(action, payload){
+      sheetWrite(action, payload).catch(err => {
+        console.warn("No se pudo espejar en Sheets:", action, err)
+      })
+    }
+
+    async function fetchTicketsFromDb(){
+      const snap = await db.ref("tickets").once("value")
+      const data = snap.val() || {}
+      return Object.entries(data).map(([id,t]) => ({ id, ...t }))
+    }
+
+
+    function startConsultorAutoRefresh(){
+      if(consultorRefreshTimer) clearInterval(consultorRefreshTimer)
+      consultorRefreshTimer = setInterval(() => {
+        loadTickets()
+        loadDashboard()
+      }, 8000)
+      globalThis.consultorRefreshTimer = consultorRefreshTimer
+    }
+
+    function stopConsultorAutoRefresh(){
+      if(consultorRefreshTimer) clearInterval(consultorRefreshTimer)
+      consultorRefreshTimer = null
+      globalThis.consultorRefreshTimer = null
+    }
+
+    async function loadFilterOptions(){
+      const users = Object.values((await db.ref("users_by_email").once("value")).val() || {})
+      cachedConsultors = users.filter(u => u && u.role === "consultor" && u.active !== false).map(u => (u.email||"").toLowerCase())
+      globalThis.cachedConsultors = cachedConsultors
+
+      const clients = Object.values((await db.ref("clients").once("value")).val() || {})
+      cachedClients = clients.map(c => String(c.name||"").trim()).filter(Boolean).sort((a,b)=>a.localeCompare(b,'es'))
+      globalThis.cachedClients = cachedClients
+
+      const consultorSelect = document.getElementById("filterConsultor")
+      if(consultorSelect){
+        consultorSelect.innerHTML = `<option value="">Todos los consultores</option>${cachedConsultors.map(c => `<option value="${htmlEscape(c)}">${htmlEscape(c)}</option>`).join("")}`
+        consultorSelect.value = ticketFilterConsultor
+      }
+
+      const clientFilterSelect = document.getElementById("filterClient")
+      if(clientFilterSelect){
+        clientFilterSelect.innerHTML = `<option value="">Todos los clientes</option>${cachedClients.map(c => `<option value="${htmlEscape(c)}">${htmlEscape(c)}</option>`).join("")}`
+        clientFilterSelect.value = ticketFilterClient
+      }
+
+      const ticketClientSelect = document.getElementById("tClient")
+      if(ticketClientSelect){
+        ticketClientSelect.innerHTML = `<option value="">Seleccionar cliente</option>${cachedClients.map(c => `<option value="${htmlEscape(c)}">${htmlEscape(c)}</option>`).join("")}`
+      }
+    }
+
+    async function saveClient(){
+      if(currentRole !== "admin") return alert("Solo admin puede agregar clientes")
+      const name = (document.getElementById("cName")?.value || "").trim()
+      if(!name) return alert("Ingresá un cliente")
+      await db.ref("clients").child(emailKey(name)).set({ name, createdAt: new Date().toISOString(), createdBy: currentUser.email })
+      mirrorToSheet("upsertClient", { key: emailKey(name), name, createdAt: new Date().toISOString(), createdBy: currentUser.email })
+      const input = document.getElementById("cName")
+      if(input) input.value = ""
+      showToast("Cliente agregado", "ok")
+      await loadClientsAdmin()
+      await loadFilterOptions()
+    }
+
+    async function deleteClient(key){
+      if(currentRole !== "admin") return alert("Solo admin puede eliminar clientes")
+      if(!confirm("¿Eliminar cliente?")) return
+      await db.ref("clients").child(key).remove()
+      mirrorToSheet("deleteClient", { key })
+      showToast("Cliente eliminado", "ok")
+      await loadClientsAdmin()
+      await loadFilterOptions()
+    }
+
+    async function loadClientsAdmin(){
+      const container = document.getElementById("clientsList")
+      if(!container) return
+      const clients = Object.entries((await db.ref("clients").once("value")).val() || {})
+      if(!clients.length){ container.innerHTML = "Sin clientes"; return }
+      container.innerHTML = clients.map(([k,c]) => `<div class="inline" style="justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(148,163,184,.15)"><span>${htmlEscape(c.name||"")}</span><button class="danger" onclick="deleteClient('${k}')">Eliminar</button></div>`).join("")
+    }
+
+    async function fetchTicketsFromSheet(){
+      const query = encodeURIComponent("select A,B,C,D,E,F,G,H,I,J,K,L,M,N")
+      const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?sheet=${encodeURIComponent(SHEET_TICKETS_NAME)}&tq=${query}`
+      const res = await fetch(url)
+      if(!res.ok) throw new Error("No se pudo leer la planilla")
+      const gviz = parseGvizJson(await res.text())
+      const rows = gviz?.table?.rows || []
+
+      return rows
+        .map(r => (r.c || []).map(c => c?.v ?? ""))
+        .filter(cols => (cols[0]||"").toString().trim())
+        .map(cols => ({
+          id: String(cols[0]||""),
+          title: String(cols[1]||""),
+          description: String(cols[2]||""),
+          priority: String(cols[3]||"Media"),
+          client: String(cols[4]||""),
+          status: String(cols[5]||"unassigned"),
+          assignedTo: String(cols[6]||""),
+          comments: (() => { try{ return JSON.parse(cols[7]||"{}") }catch(_){ return {} } })(),
+          createdAt: String(cols[8]||""),
+          createdBy: String(cols[9]||""),
+          updatedAt: String(cols[10]||""),
+          updatedBy: String(cols[11]||""),
+          deadline: String(cols[12]||""),
+          urgentRequested: String(cols[13]||"false") === "true"
+        }))
+    }
+
+    async function sheetWrite(action, payload){
+      if(!SHEET_WEBHOOK_URL){
+        alert("Falta configurar SHEET_WEBHOOK_URL para guardar cambios en Google Sheets")
+        throw new Error("SHEET_WEBHOOK_URL no configurada")
+      }
+
+      // Enviamos text/plain para evitar preflight CORS en hosting estático (GitHub Pages).
+      const requestBody = JSON.stringify({ action, payload, sheetId: SHEET_ID, gid: SHEET_GID, ticketSheet: SHEET_TICKETS_NAME, adminSheet: SHEET_ADMINS_NAME })
+      const res = await fetch(SHEET_WEBHOOK_URL, {
+        method: "POST",
+        mode: "cors",
+        redirect: "follow",
+        body: requestBody
+      })
+
+      if(!res.ok) throw new Error(`No se pudo escribir en Google Sheets (${res.status})`)
+      const data = await res.json().catch(() => ({ ok: true }))
+      if(data && data.ok === false){
+        const rawError = String(data.error || "Error al guardar en Google Sheets")
+        if(rawError.includes("setHeaders")) throw new Error("Tu Apps Script está desactualizado (usa response.setHeaders). Reemplazá el script por APPS_SCRIPT.gs y volvé a desplegar la Web App.")
+        throw new Error(rawError)
+      }
+      return data
+    }
 
     async function logActivity(eventType, details={}){
       try{
@@ -177,7 +421,7 @@
       renderApp()
     }
 
-    function logout(){ currentUser = null; currentRole = null; renderLogin() }
+    function logout(){ stopConsultorAutoRefresh(); currentUser = null; currentRole = null; renderLogin() }
 
     function renderApp(){
       const isAdmin = currentRole === "admin"
@@ -199,13 +443,13 @@
 
             <div style="margin-top:14px">
               <h3 style="margin:0 0 10px">Dashboard</h3>
-              <div class="kpiGrid">
+              <div class="kpiGrid ${currentRole === "consultor" ? "singleRow" : ""}">
                 <div class="kpi"><div class="label">Tickets totales</div><div class="value" id="kpiTotal">-</div></div>
                 <div class="kpi"><div class="label">Pendientes de asignar</div><div class="value" id="kpiUnassigned">-</div></div>
                 <div class="kpi"><div class="label">En curso</div><div class="value" id="kpiDoing">-</div></div>
                 <div class="kpi"><div class="label">Finalizadas</div><div class="value" id="kpiDone">-</div></div>
                 <div class="kpi"><div class="label">Analistas</div><div class="value" id="kpiOperators">-</div></div>
-                <div class="kpi"><div class="label">Último acceso analista</div><div class="value" style="font-size:14px;margin-top:8px" id="kpiLastAccess">-</div></div>
+                ${currentRole !== "consultor" ? `<div class="kpi"><div class="label">Último acceso analista</div><div class="value" style="font-size:14px;margin-top:8px" id="kpiLastAccess">-</div></div>` : ""}
               </div>
               ${currentRole !== "consultor" ? `
               <div style="margin-top:14px">
@@ -231,8 +475,22 @@
                 <div style="display:flex;align-items:flex-end"><button onclick="saveUserAccess()">Guardar usuario</button></div>
               </div>
               <div id="usersList" class="small"></div>
+              <hr style="border-color:rgba(148,163,184,.2);margin:12px 0">
+              <h4 style="margin:0 0 8px">Clientes</h4>
+              <div class="row">
+                <div><label>Nuevo cliente</label><input id="cName"></div>
+                <div style="display:flex;align-items:flex-end"><button onclick="saveClient()">Agregar cliente</button></div>
+              </div>
+              <div id="clientsList" class="small"></div>
             </div>
-          `:"<div></div>"}
+          ` : currentRole === "consultor" ? `
+            <div class="card">
+              <div class="inline" style="justify-content:space-between;align-items:center">
+                <h3 style="margin:0">Actividad de comentarios</h3>
+                </div>
+              <div id="consultorCommentsActivity" style="margin-top:10px;max-height:300px;overflow-y:auto;padding-right:4px"></div>
+            </div>
+          ` : "<div></div>"}
         </div>
 
         <div class="card">
@@ -240,18 +498,26 @@
             <h3 style="margin:0">Tickets</h3>
             <span class="small">Vista Kanban de operación</span>
           </div>
-          <div class="searchWrap"><input oninput="updateTicketSearch(this.value)" placeholder="Buscar por título, cliente o descripción"></div>
+          <div class="row">
+            <div class="searchWrap"><input oninput="updateTicketSearch(this.value)" placeholder="Buscar por título, cliente o descripción"></div>
+            <div><select id="filterConsultor" onchange="updateConsultorFilter(this.value)"><option value="">Todos los consultores</option></select></div>
+            <div><select id="filterClient" onchange="updateClientFilter(this.value)"><option value="">Todos los clientes</option></select></div>
+          </div>
         </div>
 
         <div class="card"><div class="boardWrap"><div id="boardContainer"></div></div></div>
       `
 
-      if(isAdmin) loadUsersAdmin()
+      if(isAdmin){ loadUsersAdmin(); loadClientsAdmin() }
+      if(currentRole === "consultor") startConsultorAutoRefresh(); else stopConsultorAutoRefresh()
+      loadFilterOptions()
       loadTickets()
       loadDashboard()
     }
 
-    function updateTicketSearch(value){ ticketSearchTerm = (value||"").trim().toLowerCase(); loadTickets() }
+    function updateTicketSearch(value){ ticketSearchTerm = (value||"").trim().toLowerCase(); globalThis.ticketSearchTerm = ticketSearchTerm; loadTickets() }
+    function updateConsultorFilter(value){ ticketFilterConsultor = (value||"").trim().toLowerCase(); globalThis.ticketFilterConsultor = ticketFilterConsultor; loadTickets() }
+    function updateClientFilter(value){ ticketFilterClient = (value||"").trim().toLowerCase(); globalThis.ticketFilterClient = ticketFilterClient; loadTickets() }
 
     function openTicketModal(){ document.getElementById("ticketModal").classList.remove("hidden") }
     function closeTicketModal(){
@@ -259,6 +525,7 @@
       document.getElementById("tDescription").value = ""
       document.getElementById("tPriority").value = "Media"
       document.getElementById("tClient").value = ""
+      document.getElementById("tDeadline").value = ""
       document.getElementById("ticketModal").classList.add("hidden")
     }
 
@@ -267,21 +534,34 @@
       const description = document.getElementById("tDescription").value.trim()
       const priority = document.getElementById("tPriority").value
       const client = document.getElementById("tClient").value.trim()
+      const deadline = document.getElementById("tDeadline").value
 
       if(!title || !description || !client) return alert("Completá título, detalle y cliente/área")
 
-      await db.ref("tickets").push({
-        title, description, priority, client,
+      showToast("Creando ticket...", "info", 1600)
+      const now = new Date().toISOString()
+      const code = buildTicketCode(cachedTickets)
+      const ticket = {
+        id: code,
+        title, description, priority, client, deadline,
         status: "unassigned",
         assignedTo: "",
         comments: {},
-        createdAt: new Date().toISOString(),
+        createdAt: now,
         createdBy: currentUser.email,
-        updatedAt: new Date().toISOString(),
+        updatedAt: now,
         updatedBy: currentUser.email
-      })
-      logActivity("ticket_creado", { title, client })
+      }
+
+      const ref = await db.ref("tickets").push(ticket)
+      const savedTicket = { ...ticket, id: ref.key }
+      mirrorToSheet("createTicket", savedTicket)
+      cachedTickets.unshift(savedTicket)
+      renderTicketsFromData(cachedTickets)
+      logActivity("ticket_creado", { title, client, code })
       closeTicketModal()
+      loadDashboard()
+      showToast(`Ticket ${code} creado correctamente`, "ok")
     }
 
     function loadTickets(){
@@ -290,38 +570,90 @@
 
       db.ref("tickets").off()
       db.ref("tickets").on("value", snap => {
-        const data = snap.val() || {}
-        const grouped = { unassigned: [], todo: [], doing: [], recurrent: [], done: [] }
-
-        Object.entries(data).forEach(([id, t]) => {
-          const canSeeTicket = currentRole === "admin" || currentRole === "analista" || (currentRole === "consultor" && (t.createdBy||"") === currentUser.email)
-          if(!canSeeTicket) return
-
-          const haystack = `${t.title||""} ${t.description||""} ${t.client||""}`.toLowerCase()
-          if(ticketSearchTerm && !haystack.includes(ticketSearchTerm)) return
-
-          const status = grouped[t.status] ? t.status : "unassigned"
-          grouped[status].push({ id, ...t })
-        })
-
-        container.innerHTML = `<div class="board">${Object.entries(STATUS).map(([status, label]) => `
-          <div class="column">
-            <h4>${label} <span class="small">(${grouped[status].length})</span></h4>
-            ${grouped[status].map(t => `
-              <div class="ticket">
-                <h5>${htmlEscape(t.title||"-")}</h5>
-                <p>${htmlEscape(t.description||"-")}</p>
-                <div class="meta">Cliente/Área: ${htmlEscape(t.client||"-")}</div>
-                <div class="meta">Prioridad: ${htmlEscape(t.priority||"Media")}</div>
-                <div class="meta">Creado por ${htmlEscape(t.createdBy||"-")} · ${t.createdAt?new Date(t.createdAt).toLocaleString():"-"}</div>
-                <div class="meta">Asignado a: ${htmlEscape(t.assignedTo||"Sin asignar")}</div>
-                ${renderTicketActions(t.id, status)}
-                ${renderComments(t.id, t.comments || {})}
-              </div>
-            `).join("") || `<p class="small">Sin tickets</p>`}
-          </div>
-        `).join("")}</div>`
+        const data = Object.entries(snap.val() || {}).map(([id,t]) => ({ id, ...t }))
+        cachedTickets = data
+        renderTicketsFromData(data)
       })
+    }
+
+    function renderTicketsFromData(data){
+      const container = document.getElementById("boardContainer")
+      if(!container) return
+      const grouped = { unassigned: [], todo: [], doing: [], recurrent: [], done: [] }
+
+      Object.entries(data).forEach(([_, t]) => {
+        const canSeeTicket = currentRole === "admin" || currentRole === "analista" || (currentRole === "consultor" && (t.createdBy||"") === currentUser.email)
+        if(!canSeeTicket) return
+
+        const haystack = `${t.title||""} ${t.description||""} ${t.client||""} ${t.createdBy||""}`.toLowerCase()
+        if(ticketSearchTerm && !haystack.includes(ticketSearchTerm)) return
+        if(ticketFilterConsultor && !(String(t.createdBy||"").toLowerCase().includes(ticketFilterConsultor))) return
+        if(ticketFilterClient && !(String(t.client||"").toLowerCase().includes(ticketFilterClient))) return
+
+        const status = grouped[t.status] ? t.status : "unassigned"
+        grouped[status].push(t)
+      })
+
+      const maxTicketsInColumn = Math.max(...Object.values(grouped).map(arr => arr.length), 0)
+      const uniformHeight = Math.max(220, 120 + maxTicketsInColumn * 190)
+
+      container.innerHTML = `<div class="board">${Object.entries(STATUS).map(([status, label]) => `
+        <div class="column" style="min-height:${uniformHeight}px">
+          <h4>${label} <span class="small">(${grouped[status].length})</span></h4>
+          ${grouped[status].map(t => renderTicketCard(t, status)).join("") || `<p class="small">Sin tickets</p>`}
+        </div>
+      `).join("")}</div>`
+    }
+
+    function renderTicketCard(ticket, status){
+      if(currentRole === "consultor"){
+        return `
+          <div class="ticket">
+            <h5><span class="ticketCode">${htmlEscape(ticket.id||"-")}</span>${htmlEscape(ticket.title||"-")}</h5>
+            <div class="meta">Asignado a: ${htmlEscape(ticket.assignedTo||"Sin asignar")}</div>
+            <div class="meta deadline">Deadline: ${ticket.deadline ? htmlEscape(ticket.deadline) : "Sin fecha"}</div>
+            <div class="inline" style="margin-top:8px"><button class="ghost" onclick="openTicketDetailModal('${ticket.id}')">Ver detalle</button><button class="urgentBtn" onclick="markUrgent('${ticket.id}')">🚨 URGENTE</button></div>${ticket.urgentRequested?`<div class="urgentFlag">Marcado como urgente</div>`:""}
+          </div>
+        `
+      }
+
+      return `
+        <div class="ticket">
+          <h5><span class="ticketCode">${htmlEscape(ticket.id||"-")}</span>${htmlEscape(ticket.title||"-")}</h5>
+          <p>${htmlEscape(ticket.description||"-")}</p>
+          <div class="meta">Cliente/Área: ${htmlEscape(ticket.client||"-")}</div>
+          <div class="meta">Prioridad: ${htmlEscape(ticket.priority||"Media")}</div>
+          <div class="meta">Creado por ${htmlEscape(ticket.createdBy||"-")} · ${ticket.createdAt?new Date(ticket.createdAt).toLocaleString():"-"}</div>
+          <div class="meta">Asignado a: ${htmlEscape(ticket.assignedTo||"Sin asignar")}</div>
+            <div class="meta deadline">Deadline: ${ticket.deadline ? htmlEscape(ticket.deadline) : "Sin fecha"}</div>
+          ${renderTicketActions(ticket.id, status)}
+          ${renderComments(ticket.id, ticket.comments || {})}
+        </div>
+      `
+    }
+
+    async function openTicketDetailModal(id){
+      const ticket = cachedTickets.find(t => t.id === id)
+      if(!ticket) return alert("No se encontró el ticket")
+
+      document.getElementById("ticketDetailContent").innerHTML = `
+        <div class="row">
+          <div><label>Código</label><input value="${htmlEscape(ticket.id||"")}" disabled></div>
+          <div><label>Título</label><input value="${htmlEscape(ticket.title||"")}" disabled></div>
+          <div><label>Prioridad</label><input value="${htmlEscape(ticket.priority||"Media")}" disabled></div>
+        </div>
+        <div><label>Detalle</label><textarea disabled>${htmlEscape(ticket.description||"")}</textarea></div>
+        <div><label>Cliente/Área</label><input value="${htmlEscape(ticket.client||"")}" disabled></div>
+        <div><label>Asignado a</label><input value="${htmlEscape(ticket.assignedTo||"Sin asignar")}" disabled></div>
+        <div><label>Deadline</label><input value="${htmlEscape(ticket.deadline||"")}" disabled></div>
+        ${renderComments(id, ticket.comments || {})}
+      `
+      document.getElementById("ticketDetailModal").classList.remove("hidden")
+    }
+
+    function closeTicketDetailModal(){
+      document.getElementById("ticketDetailModal").classList.add("hidden")
+      document.getElementById("ticketDetailContent").innerHTML = ""
     }
 
     function renderTicketActions(id, currentStatus){
@@ -371,17 +703,36 @@
       `
     }
 
+    async function markUrgent(id){
+      const ticket = cachedTickets.find(t => t.id === id)
+      if(!ticket) return
+      const updated = { ...ticket, urgentRequested: true, updatedAt: new Date().toISOString(), updatedBy: currentUser.email }
+      showToast("Marcando urgente...", "info", 1400)
+      await db.ref("tickets").child(id).update(updated)
+      mirrorToSheet("updateTicket", { id, ...updated })
+      const ix = cachedTickets.findIndex(t => t.id === id)
+      if(ix >= 0) cachedTickets[ix] = updated
+      renderTicketsFromData(cachedTickets)
+      await logActivity("ticket_urgente", { ticketId: id, title: ticket.title })
+      loadDashboard()
+      showToast("Ticket marcado como urgente", "ok")
+    }
+
     async function moveTicket(id){
       if(!(currentRole === "admin" || currentRole === "analista")) return alert("No tenés permisos para mover tickets")
       const next = document.getElementById(`next-${id}`)?.value
       if(!next) return
 
-      await db.ref("tickets").child(id).update({
-        status: next,
-        updatedAt: new Date().toISOString(),
-        updatedBy: currentUser.email
-      })
+      showToast("Moviendo ticket...", "info", 1600)
+      const ticket = cachedTickets.find(t => t.id === id)
+      if(!ticket) return
+      const updated = { ...ticket, status: next, updatedAt: new Date().toISOString(), updatedBy: currentUser.email }
+      await db.ref("tickets").child(id).update(updated)
+      mirrorToSheet("updateTicket", { id, ...updated })
       logActivity("ticket_movido", { ticketId: id, nextStatus: next })
+      loadTickets()
+      await loadDashboard()
+      showToast("Ticket movido correctamente", "ok")
     }
 
     async function assignTicket(id){
@@ -392,31 +743,51 @@
       const user = (await db.ref("users_by_email").child(emailKey(assignedTo)).once("value")).val()
       if(!user || user.role !== "analista") return alert("El usuario no existe o no es analista")
 
-      await db.ref("tickets").child(id).update({
-        assignedTo,
-        updatedAt: new Date().toISOString(),
-        updatedBy: currentUser.email
-      })
+      showToast("Asignando ticket...", "info", 1600)
+      const ticket = cachedTickets.find(t => t.id === id)
+      if(!ticket) return
+      const updated = { ...ticket, assignedTo, updatedAt: new Date().toISOString(), updatedBy: currentUser.email }
+      await db.ref("tickets").child(id).update(updated)
+      mirrorToSheet("updateTicket", { id, ...updated })
       logActivity("ticket_asignado", { ticketId: id, assignedTo })
+      loadTickets()
+      showToast("Ticket asignado correctamente", "ok")
     }
 
     async function addComment(id){
       const message = (document.getElementById(`comment-${id}`)?.value || "").trim()
       if(!message) return
 
-      await db.ref("tickets").child(id).child("comments").push({
-        message,
-        author: currentUser.email,
-        createdAt: new Date().toISOString()
-      })
-      document.getElementById(`comment-${id}`).value = ""
+      showToast("Enviando comentario...", "info", 1600)
+      const ticket = cachedTickets.find(t => t.id === id)
+      if(!ticket) return
+      const comments = { ...(ticket.comments || {}) }
+      comments[generateId()] = { message, author: currentUser.email, createdAt: new Date().toISOString() }
+      const updated = { ...ticket, comments, updatedAt: new Date().toISOString(), updatedBy: currentUser.email }
+
+      await db.ref("tickets").child(id).update(updated)
+      mirrorToSheet("updateTicket", { id, ...updated })
+      const ix = cachedTickets.findIndex(t => t.id === id)
+      if(ix >= 0) cachedTickets[ix] = updated
+      renderTicketsFromData(cachedTickets)
+      const input = document.getElementById(`comment-${id}`)
+      if(input) input.value = ""
       logActivity("ticket_comentario", { ticketId: id })
+      const detailOpen = !document.getElementById("ticketDetailModal").classList.contains("hidden")
+      if(detailOpen) openTicketDetailModal(id)
+      loadDashboard()
+      showToast("Comentario enviado correctamente", "ok")
     }
 
     async function deleteTicket(id){
       if(!confirm("¿Seguro que querés borrar este ticket?")) return
+      showToast("Eliminando ticket...", "info", 1600)
       await db.ref("tickets").child(id).remove()
+      mirrorToSheet("deleteTicket", { id })
       logActivity("ticket_borrado", { ticketId: id })
+      loadTickets()
+      await loadDashboard()
+      showToast("Ticket eliminado correctamente", "ok")
     }
 
     async function saveUserAccess(){
@@ -453,16 +824,17 @@
       if(currentRole !== "admin") return alert("Solo admin puede eliminar usuarios")
       if(!confirm(`¿Eliminar acceso para ${email}?`)) return
       await db.ref("users_by_email").child(key).remove()
+      await loadFilterOptions()
     }
 
     async function loadDashboard(){
       try{
-        const tickets = (await db.ref("tickets").once("value")).val() || {}
+        const ticketsArr = await fetchTicketsFromDb()
         const users = Object.values((await db.ref("users_by_email").once("value")).val() || {})
         const activity = Object.values((await db.ref("activity_logs").limitToLast(10).once("value")).val() || {})
 
         let total = 0, unassigned = 0, doing = 0, done = 0
-        Object.values(tickets).forEach(t => {
+        ticketsArr.forEach(t => {
           total++
           if(t.status === "unassigned") unassigned++
           if(t.status === "doing") doing++
@@ -477,7 +849,25 @@
         document.getElementById("kpiDoing").innerText = doing
         document.getElementById("kpiDone").innerText = done
         document.getElementById("kpiOperators").innerText = ops.length
-        document.getElementById("kpiLastAccess").innerText = last ? new Date(last).toLocaleString() : "Sin accesos"
+        const lastAccessEl = document.getElementById("kpiLastAccess")
+        if(lastAccessEl){
+          lastAccessEl.innerText = last ? new Date(last).toLocaleString() : "Sin accesos"
+        }
+
+        if(currentRole === "consultor") {
+          const commentsContainer = document.getElementById("consultorCommentsActivity")
+          if(commentsContainer){
+            const onlyMine = ticketsArr.filter(t => (t.createdBy||"") === currentUser.email)
+            const roleByEmail = Object.fromEntries(users.map(u => [String(u.email||"").toLowerCase(), u.role]))
+            const comments = onlyMine.flatMap(t => Object.values(t.comments||{}).map(c => ({ ticketId: t.id, ticketTitle: t.title, ...c })))
+              .filter(c => { const r = roleByEmail[String(c.author||"").toLowerCase()]; return r === "admin" || r === "analista" })
+              .sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0))
+            commentsContainer.innerHTML = comments.length
+              ? comments.map(c => `<div class="feedItem"><div class="feedType">${htmlEscape(c.author||"-")}</div><div class="feedMeta">${htmlEscape(c.message||"")}<br>(${htmlEscape(c.ticketId||"-")} · ${htmlEscape(c.ticketTitle||"-")}) ${c.createdAt ? "· " + new Date(c.createdAt).toLocaleString() : ""}</div></div>`).join("")
+              : `<p class="small">Sin comentarios aún.</p>`
+          }
+          return
+        }
 
         const container = document.getElementById("recentActivity")
         if(!container) return
@@ -500,9 +890,28 @@
       }catch(_){ }
     }
 
+    async function ensureDefaultClients(){
+      const samples = ["Cliente de prueba 1.", "Cliente de prueba 2."]
+      const clients = Object.values((await db.ref("clients").once("value")).val() || {})
+      for(const name of samples){
+        const exists = clients.some(c => (c.name||"") === name)
+        if(!exists){
+          await db.ref("clients").child(emailKey(name)).set({ name, createdAt: new Date().toISOString(), createdBy: "system" })
+          mirrorToSheet("upsertClient", { key: emailKey(name), name, createdAt: new Date().toISOString(), createdBy: "system" })
+        }
+      }
+    }
+
     async function init(){
-      renderLogin()
-      await ensureDefaultUsers()
+      try{
+        renderLogin()
+        await ensureDefaultUsers()
+        await ensureDefaultClients()
+      }catch(err){
+        console.error("Error en inicialización:", err)
+        renderLogin()
+        showToast("La app inició con advertencias. Revisá la consola.", "error", 3000)
+      }
     }
 
     init()
