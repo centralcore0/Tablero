@@ -14,6 +14,7 @@
  */
 
 const DEFAULT_GID = '0';
+const ADMIN_SHEET_NAME = 'BD_ADMINS';
 
 function doGet() {
   // Importante: no usar response.setHeaders (no existe en Apps Script ContentService).
@@ -29,10 +30,13 @@ function doPost(e) {
 
     if (!action) return jsonOutput({ ok: false, error: 'Falta action' });
 
-    const sheet = getSheetByGid_(gid);
-    if (!sheet) return jsonOutput({ ok: false, error: `No existe sheet para gid=${gid}` });
+    const adminActions = new Set(['upsertUser','deleteUser','upsertClient','deleteClient']);
+    const isAdminAction = adminActions.has(action);
+    const sheet = isAdminAction ? getSheetByName_(ADMIN_SHEET_NAME) : getSheetByGid_(gid);
+    if (!sheet) return jsonOutput({ ok: false, error: isAdminAction ? `No existe sheet ${ADMIN_SHEET_NAME}` : `No existe sheet para gid=${gid}` });
 
-    ensureHeader_(sheet);
+    if (isAdminAction) ensureAdminHeader_(sheet);
+    else ensureTicketHeader_(sheet);
 
     if (action === 'createTicket') {
       upsertTicket_(sheet, payload, true);
@@ -105,6 +109,11 @@ function parseBody_(e) {
   return (e && e.parameter) ? e.parameter : {};
 }
 
+function getSheetByName_(name) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  return ss.getSheetByName(name);
+}
+
 function getSheetByGid_(gid) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheets = ss.getSheets();
@@ -114,11 +123,20 @@ function getSheetByGid_(gid) {
   return null;
 }
 
-function ensureHeader_(sheet) {
+function ensureTicketHeader_(sheet) {
   const expected = [
     'id', 'title', 'description', 'priority', 'client', 'status',
     'assignedTo', 'comments', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy', 'deadline', 'urgentRequested'
   ];
+  const firstRow = sheet.getRange(1, 1, 1, expected.length).getValues()[0];
+  const hasHeader = firstRow.some(v => String(v || '').trim() !== '');
+  if (!hasHeader) {
+    sheet.getRange(1, 1, 1, expected.length).setValues([expected]);
+  }
+}
+
+function ensureAdminHeader_(sheet) {
+  const expected = ['type','key','email','password','role','active','createdAt','createdBy','lastAccessAt','name','updatedAt'];
   const firstRow = sheet.getRange(1, 1, 1, expected.length).getValues()[0];
   const hasHeader = firstRow.some(v => String(v || '').trim() !== '');
   if (!hasHeader) {
@@ -197,12 +215,11 @@ function upsertAdminRow_(sheet, type, key, data) {
     String(data.createdBy || ''),
     String(data.lastAccessAt || ''),
     String(data.name || ''),
-    new Date().toISOString(),
-    '', '', ''
+    new Date().toISOString()
   ];
   const existing = findAdminRow_(sheet, type, key);
   if (existing > 1) {
-    sheet.getRange(existing, 1, 1, 14).setValues([row]);
+    sheet.getRange(existing, 1, 1, 11).setValues([row]);
   } else {
     sheet.appendRow(row);
   }
