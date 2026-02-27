@@ -277,7 +277,11 @@
 
       if(!res.ok) throw new Error(`No se pudo escribir en Google Sheets (${res.status})`)
       const data = await res.json().catch(() => ({ ok: true }))
-      if(data && data.ok === false) throw new Error(data.error || "Error al guardar en Google Sheets")
+      if(data && data.ok === false){
+        const rawError = String(data.error || "Error al guardar en Google Sheets")
+        if(rawError.includes("setHeaders")) throw new Error("Tu Apps Script está desactualizado (usa response.setHeaders). Reemplazá el script por APPS_SCRIPT.gs y volvé a desplegar la Web App.")
+        throw new Error(rawError)
+      }
       return data
     }
 
@@ -372,7 +376,7 @@
                 <div class="kpi"><div class="label">En curso</div><div class="value" id="kpiDoing">-</div></div>
                 <div class="kpi"><div class="label">Finalizadas</div><div class="value" id="kpiDone">-</div></div>
                 <div class="kpi"><div class="label">Analistas</div><div class="value" id="kpiOperators">-</div></div>
-                <div class="kpi"><div class="label">Último acceso analista</div><div class="value" style="font-size:14px;margin-top:8px" id="kpiLastAccess">${currentRole !== "consultor" ? "-" : "No aplica"}</div></div>
+                ${currentRole !== "consultor" ? `<div class="kpi"><div class="label">Último acceso analista</div><div class="value" style="font-size:14px;margin-top:8px" id="kpiLastAccess">-</div></div>` : ""}
               </div>
               ${currentRole !== "consultor" ? `
               <div style="margin-top:14px">
@@ -406,7 +410,15 @@
               </div>
               <div id="clientsList" class="small"></div>
             </div>
-          `:"<div></div>"}
+          ` : currentRole === "consultor" ? `
+            <div class="card">
+              <div class="inline" style="justify-content:space-between;align-items:center">
+                <h3 style="margin:0">Actividad de comentarios</h3>
+                <button class="ghost" onclick="loadDashboard()">Actualizar</button>
+              </div>
+              <div id="consultorCommentsActivity" style="margin-top:10px"></div>
+            </div>
+          ` : "<div></div>"}
         </div>
 
         <div class="card">
@@ -739,6 +751,19 @@
         const lastAccessEl = document.getElementById("kpiLastAccess")
         if(lastAccessEl){
           lastAccessEl.innerText = last ? new Date(last).toLocaleString() : "Sin accesos"
+        }
+
+        if(currentRole === "consultor") {
+          const commentsContainer = document.getElementById("consultorCommentsActivity")
+          if(commentsContainer){
+            const onlyMine = ticketsArr.filter(t => (t.createdBy||"") === currentUser.email)
+            const comments = onlyMine.flatMap(t => Object.values(t.comments||{}).map(c => ({ ticketId: t.id, ticketTitle: t.title, ...c })))
+              .sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0))
+            commentsContainer.innerHTML = comments.length
+              ? comments.map(c => `<div class="feedItem"><div class="feedType">${htmlEscape(c.author||"-")}</div><div class="feedMeta">${htmlEscape(c.message||"")}<br>(${htmlEscape(c.ticketId||"-")} · ${htmlEscape(c.ticketTitle||"-")}) ${c.createdAt ? "· " + new Date(c.createdAt).toLocaleString() : ""}</div></div>`).join("")
+              : `<p class="small">Sin comentarios aún.</p>`
+          }
+          return
         }
 
         const container = document.getElementById("recentActivity")

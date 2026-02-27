@@ -16,7 +16,8 @@
 const DEFAULT_GID = '0';
 
 function doGet() {
-  return jsonOutput({ ok: true, service: 'tablero-sheet-webhook', time: new Date().toISOString() });
+  // Importante: no usar response.setHeaders (no existe en Apps Script ContentService).
+  return jsonOutput({ ok: true, service: 'tablero-sheet-webhook', version: '2026-02-fix', time: new Date().toISOString() });
 }
 
 function doPost(e) {
@@ -58,13 +59,25 @@ function doPost(e) {
 }
 
 function parseBody_(e) {
-  if (!e || !e.postData || !e.postData.contents) return {};
-  const text = e.postData.contents;
-  try {
-    return JSON.parse(text);
-  } catch (_) {
-    return {};
+  if (e && e.postData && e.postData.contents) {
+    const text = e.postData.contents;
+    try {
+      return JSON.parse(text);
+    } catch (_) {}
   }
+
+  if (e && e.parameter && e.parameter.payload) {
+    try {
+      const base = JSON.parse(e.parameter.payload);
+      return {
+        action: e.parameter.action || base.action,
+        payload: base.payload || {},
+        gid: e.parameter.gid || base.gid || DEFAULT_GID
+      };
+    } catch (_) {}
+  }
+
+  return (e && e.parameter) ? e.parameter : {};
 }
 
 function getSheetByGid_(gid) {
