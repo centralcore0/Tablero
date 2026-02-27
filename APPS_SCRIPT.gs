@@ -14,6 +14,7 @@
  */
 
 const DEFAULT_GID = '0';
+const TICKETS_SHEET_NAME = 'BD';
 const ADMIN_SHEET_NAME = 'BD_ADMINS';
 
 function doGet() {
@@ -26,29 +27,25 @@ function doPost(e) {
     const body = parseBody_(e);
     const action = String(body.action || '').trim();
     const payload = body.payload || {};
-    const gid = String(body.gid || DEFAULT_GID);
 
     if (!action) return jsonOutput({ ok: false, error: 'Falta action' });
 
-    const adminActions = new Set(['upsertUser','deleteUser','upsertClient','deleteClient']);
-    const isAdminAction = adminActions.has(action);
-    const sheet = isAdminAction ? getSheetByName_(ADMIN_SHEET_NAME) : getSheetByGid_(gid);
-    if (!sheet) return jsonOutput({ ok: false, error: isAdminAction ? `No existe sheet ${ADMIN_SHEET_NAME}` : `No existe sheet para gid=${gid}` });
+    const adminActions = new Set(['upsertClient','deleteClient']);
+    const ticketActions = new Set(['createTicket','updateTicket','deleteTicket']);
 
-    if (isAdminAction) ensureAdminHeader_(sheet);
-    else ensureTicketHeader_(sheet);
+    if (ticketActions.has(action)) {
+      const sheet = getSheetByName_(body.ticketSheet || TICKETS_SHEET_NAME) || getSheetByGid_(String(body.gid || DEFAULT_GID));
+      if (!sheet) return jsonOutput({ ok: false, error: 'No existe hoja de tickets' });
+      ensureTicketHeader_(sheet);
 
-    if (action === 'createTicket') {
-      upsertTicket_(sheet, payload, true);
-      return jsonOutput({ ok: true, action });
-    }
-
-    if (action === 'updateTicket') {
-      upsertTicket_(sheet, payload, false);
-      return jsonOutput({ ok: true, action });
-    }
-
-    if (action === 'deleteTicket') {
+      if (action === 'createTicket') {
+        upsertTicket_(sheet, payload, true);
+        return jsonOutput({ ok: true, action });
+      }
+      if (action === 'updateTicket') {
+        upsertTicket_(sheet, payload, false);
+        return jsonOutput({ ok: true, action });
+      }
       const id = String(payload.id || '').trim();
       if (!id) return jsonOutput({ ok: false, error: 'Falta payload.id' });
       const row = findTicketRow_(sheet, id);
@@ -56,27 +53,18 @@ function doPost(e) {
       return jsonOutput({ ok: true, action, deleted: row > 1 });
     }
 
-    if (action === 'upsertUser') {
-      upsertAdminRow_(sheet, 'user', payload.key, {
-        email: payload.email, password: payload.password, role: payload.role, active: payload.active,
-        createdAt: payload.createdAt, createdBy: payload.createdBy, lastAccessAt: payload.lastAccessAt
-      });
-      return jsonOutput({ ok: true, action });
-    }
+    if (adminActions.has(action)) {
+      const sheet = getSheetByName_(body.adminSheet || ADMIN_SHEET_NAME);
+      if (!sheet) return jsonOutput({ ok: false, error: `No existe hoja ${ADMIN_SHEET_NAME}` });
+      ensureAdminHeader_(sheet);
 
-    if (action === 'deleteUser') {
-      deleteAdminRow_(sheet, 'user', payload.key);
-      return jsonOutput({ ok: true, action });
-    }
+      if (action === 'upsertClient') {
+        upsertAdminRow_(sheet, 'client', payload.key, {
+          name: payload.name, createdAt: payload.createdAt, createdBy: payload.createdBy
+        });
+        return jsonOutput({ ok: true, action });
+      }
 
-    if (action === 'upsertClient') {
-      upsertAdminRow_(sheet, 'client', payload.key, {
-        name: payload.name, createdAt: payload.createdAt, createdBy: payload.createdBy
-      });
-      return jsonOutput({ ok: true, action });
-    }
-
-    if (action === 'deleteClient') {
       deleteAdminRow_(sheet, 'client', payload.key);
       return jsonOutput({ ok: true, action });
     }
@@ -136,7 +124,7 @@ function ensureTicketHeader_(sheet) {
 }
 
 function ensureAdminHeader_(sheet) {
-  const expected = ['type','key','email','password','role','active','createdAt','createdBy','lastAccessAt','name','updatedAt'];
+  const expected = ['type','key','name','createdAt','createdBy','updatedAt'];
   const firstRow = sheet.getRange(1, 1, 1, expected.length).getValues()[0];
   const hasHeader = firstRow.some(v => String(v || '').trim() !== '');
   if (!hasHeader) {
@@ -207,19 +195,14 @@ function upsertAdminRow_(sheet, type, key, data) {
   const row = [
     type,
     String(key || ''),
-    String(data.email || ''),
-    String(data.password || ''),
-    String(data.role || ''),
-    String(data.active),
+    String(data.name || ''),
     String(data.createdAt || ''),
     String(data.createdBy || ''),
-    String(data.lastAccessAt || ''),
-    String(data.name || ''),
     new Date().toISOString()
   ];
   const existing = findAdminRow_(sheet, type, key);
   if (existing > 1) {
-    sheet.getRange(existing, 1, 1, 11).setValues([row]);
+    sheet.getRange(existing, 1, 1, 6).setValues([row]);
   } else {
     sheet.appendRow(row);
   }

@@ -140,10 +140,11 @@
 
     const SHEET_ID = "1tNNtG2Asr1ds1_-3P6PmVgsHbdlhhfrV7GhWJDiTO1Q"
     const SHEET_GID = "0"
+    const SHEET_TICKETS_NAME = "BD"
     const SHEET_ADMINS_NAME = "BD_ADMINS"
     // Reemplazar por tu URL de Web App de Apps Script para habilitar escritura en la hoja.
     // Debe aceptar JSON { action, payload } para createTicket/updateTicket/deleteTicket.
-    const SHEET_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbw7sl41uJgKQv7Pjc_sWumGfZIH4iLMgGshym2vpIzI0Q1rV_zDZZYtwI8XVbcvvaX1Kw/exec"
+    const SHEET_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbyRLv3IqWF7O-045AsuEQzqOn2FstgF8X3TfBXQB6eSLJr44u6nm3QUQH_mtBaSjVYUhw/exec"
     let cachedTickets = []
 
     function emailKey(email){ return (email||"").toLowerCase().replace(/[.#$/\[\]]/g, "_") }
@@ -209,13 +210,26 @@
       const rows = await fetchAdminsRowsFromSheet()
       return rows
         .filter(cols => String(cols[0]||"").toLowerCase() === "client")
-        .map(cols => ({ key: String(cols[1]||""), name: String(cols[9]||"") }))
+        .map(cols => ({ key: String(cols[1]||""), name: String(cols[2]||"") }))
         .filter(c => c.name)
     }
 
     async function adminWrite(action, payload){
       return sheetWrite(action, payload)
     }
+
+    function mirrorToSheet(action, payload){
+      sheetWrite(action, payload).catch(err => {
+        console.warn("No se pudo espejar en Sheets:", action, err)
+      })
+    }
+
+    async function fetchTicketsFromDb(){
+      const snap = await db.ref("tickets").once("value")
+      const data = snap.val() || {}
+      return Object.entries(data).map(([id,t]) => ({ id, ...t }))
+    }
+
 
     function startConsultorAutoRefresh(){
       if(consultorRefreshTimer) clearInterval(consultorRefreshTimer)
@@ -233,11 +247,11 @@
     }
 
     async function loadFilterOptions(){
-      const users = await fetchUsersFromSheet()
+      const users = Object.values((await db.ref("users_by_email").once("value")).val() || {})
       cachedConsultors = users.filter(u => u && u.role === "consultor" && u.active !== false).map(u => (u.email||"").toLowerCase())
       globalThis.cachedConsultors = cachedConsultors
 
-      const clients = await fetchClientsFromSheet()
+      const clients = Object.values((await db.ref("clients").once("value")).val() || {})
       cachedClients = clients.map(c => String(c.name||"").trim()).filter(Boolean).sort((a,b)=>a.localeCompare(b,'es'))
       globalThis.cachedClients = cachedClients
 
@@ -263,7 +277,8 @@
       if(currentRole !== "admin") return alert("Solo admin puede agregar clientes")
       const name = (document.getElementById("cName")?.value || "").trim()
       if(!name) return alert("Ingresá un cliente")
-      await adminWrite("upsertClient", { key: emailKey(name), name, createdAt: new Date().toISOString(), createdBy: currentUser.email })
+      await db.ref("clients").child(emailKey(name)).set({ name, createdAt: new Date().toISOString(), createdBy: currentUser.email })
+      mirrorToSheet("upsertClient", { key: emailKey(name), name, createdAt: new Date().toISOString(), createdBy: currentUser.email })
       const input = document.getElementById("cName")
       if(input) input.value = ""
       showToast("Cliente agregado", "ok")
@@ -274,7 +289,8 @@
     async function deleteClient(key){
       if(currentRole !== "admin") return alert("Solo admin puede eliminar clientes")
       if(!confirm("¿Eliminar cliente?")) return
-      await adminWrite("deleteClient", { key })
+      await db.ref("clients").child(key).remove()
+      mirrorToSheet("deleteClient", { key })
       showToast("Cliente eliminado", "ok")
       await loadClientsAdmin()
       await loadFilterOptions()
@@ -283,14 +299,14 @@
     async function loadClientsAdmin(){
       const container = document.getElementById("clientsList")
       if(!container) return
-      const clients = await fetchClientsFromSheet()
+      const clients = Object.entries((await db.ref("clients").once("value")).val() || {})
       if(!clients.length){ container.innerHTML = "Sin clientes"; return }
-      container.innerHTML = clients.map(c => `<div class="inline" style="justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(148,163,184,.15)"><span>${htmlEscape(c.name||"")}</span><button class="danger" onclick="deleteClient('${c.key}')">Eliminar</button></div>`).join("")
+      container.innerHTML = clients.map(([k,c]) => `<div class="inline" style="justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(148,163,184,.15)"><span>${htmlEscape(c.name||"")}</span><button class="danger" onclick="deleteClient('${k}')">Eliminar</button></div>`).join("")
     }
 
     async function fetchTicketsFromSheet(){
       const query = encodeURIComponent("select A,B,C,D,E,F,G,H,I,J,K,L,M,N")
-      const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${SHEET_GID}&tq=${query}`
+      const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?sheet=${encodeURIComponent(SHEET_TICKETS_NAME)}&tq=${query}`
       const res = await fetch(url)
       if(!res.ok) throw new Error("No se pudo leer la planilla")
       const gviz = parseGvizJson(await res.text())
@@ -324,7 +340,7 @@
       }
 
       // Enviamos text/plain para evitar preflight CORS en hosting estático (GitHub Pages).
-      const requestBody = JSON.stringify({ action, payload, sheetId: SHEET_ID, gid: SHEET_GID })
+      const requestBody = JSON.stringify({ action, payload, sheetId: SHEET_ID, gid: SHEET_GID, ticketSheet: SHEET_TICKETS_NAME, adminSheet: SHEET_ADMINS_NAME })
       const res = await fetch(SHEET_WEBHOOK_URL, {
         method: "POST",
         mode: "cors",
@@ -538,8 +554,10 @@
         updatedBy: currentUser.email
       }
 
-      await sheetWrite("createTicket", ticket)
-      cachedTickets.unshift(ticket)
+      const ref = await db.ref("tickets").push(ticket)
+      const savedTicket = { ...ticket, id: ref.key }
+      mirrorToSheet("createTicket", savedTicket)
+      cachedTickets.unshift(savedTicket)
       renderTicketsFromData(cachedTickets)
       logActivity("ticket_creado", { title, client, code })
       closeTicketModal()
@@ -551,16 +569,12 @@
       const container = document.getElementById("boardContainer")
       if(!container) return
 
-      let data = []
-      try{
-        data = await fetchTicketsFromSheet()
-      }catch(err){
-        console.error(err)
-        container.innerHTML = `<p class="small">No se pudieron cargar tickets desde Google Sheets.</p>`
-        return
-      }
-      cachedTickets = data
-      renderTicketsFromData(data)
+      db.ref("tickets").off()
+      db.ref("tickets").on("value", snap => {
+        const data = Object.entries(snap.val() || {}).map(([id,t]) => ({ id, ...t }))
+        cachedTickets = data
+        renderTicketsFromData(data)
+      })
     }
 
     function renderTicketsFromData(data){
@@ -695,7 +709,8 @@
       if(!ticket) return
       const updated = { ...ticket, urgentRequested: true, updatedAt: new Date().toISOString(), updatedBy: currentUser.email }
       showToast("Marcando urgente...", "info", 1400)
-      await sheetWrite("updateTicket", updated)
+      await db.ref("tickets").child(id).update(updated)
+      mirrorToSheet("updateTicket", { id, ...updated })
       const ix = cachedTickets.findIndex(t => t.id === id)
       if(ix >= 0) cachedTickets[ix] = updated
       renderTicketsFromData(cachedTickets)
@@ -713,9 +728,10 @@
       const ticket = cachedTickets.find(t => t.id === id)
       if(!ticket) return
       const updated = { ...ticket, status: next, updatedAt: new Date().toISOString(), updatedBy: currentUser.email }
-      await sheetWrite("updateTicket", updated)
+      await db.ref("tickets").child(id).update(updated)
+      mirrorToSheet("updateTicket", { id, ...updated })
       logActivity("ticket_movido", { ticketId: id, nextStatus: next })
-      await loadTickets()
+      loadTickets()
       await loadDashboard()
       showToast("Ticket movido correctamente", "ok")
     }
@@ -732,9 +748,10 @@
       const ticket = cachedTickets.find(t => t.id === id)
       if(!ticket) return
       const updated = { ...ticket, assignedTo, updatedAt: new Date().toISOString(), updatedBy: currentUser.email }
-      await sheetWrite("updateTicket", updated)
+      await db.ref("tickets").child(id).update(updated)
+      mirrorToSheet("updateTicket", { id, ...updated })
       logActivity("ticket_asignado", { ticketId: id, assignedTo })
-      await loadTickets()
+      loadTickets()
       showToast("Ticket asignado correctamente", "ok")
     }
 
@@ -749,7 +766,8 @@
       comments[generateId()] = { message, author: currentUser.email, createdAt: new Date().toISOString() }
       const updated = { ...ticket, comments, updatedAt: new Date().toISOString(), updatedBy: currentUser.email }
 
-      await sheetWrite("updateTicket", updated)
+      await db.ref("tickets").child(id).update(updated)
+      mirrorToSheet("updateTicket", { id, ...updated })
       const ix = cachedTickets.findIndex(t => t.id === id)
       if(ix >= 0) cachedTickets[ix] = updated
       renderTicketsFromData(cachedTickets)
@@ -765,9 +783,10 @@
     async function deleteTicket(id){
       if(!confirm("¿Seguro que querés borrar este ticket?")) return
       showToast("Eliminando ticket...", "info", 1600)
-      await sheetWrite("deleteTicket", { id })
+      await db.ref("tickets").child(id).remove()
+      mirrorToSheet("deleteTicket", { id })
       logActivity("ticket_borrado", { ticketId: id })
-      await loadTickets()
+      loadTickets()
       await loadDashboard()
       showToast("Ticket eliminado correctamente", "ok")
     }
@@ -802,15 +821,14 @@
     async function deleteUserAccess(key,email){
       if(currentRole !== "admin") return alert("Solo admin puede eliminar usuarios")
       if(!confirm(`¿Eliminar acceso para ${email}?`)) return
-      await adminWrite("deleteUser", { key })
-      if(currentRole === "admin") loadUsersAdmin()
+      await db.ref("users_by_email").child(key).remove()
       await loadFilterOptions()
     }
 
     async function loadDashboard(){
       try{
-        const ticketsArr = await fetchTicketsFromSheet()
-        const users = await fetchUsersFromSheet()
+        const ticketsArr = await fetchTicketsFromDb()
+        const users = Object.values((await db.ref("users_by_email").once("value")).val() || {})
         const activity = Object.values((await db.ref("activity_logs").limitToLast(10).once("value")).val() || {})
 
         let total = 0, unassigned = 0, doing = 0, done = 0
@@ -872,11 +890,12 @@
 
     async function ensureDefaultClients(){
       const samples = ["Cliente de prueba 1.", "Cliente de prueba 2."]
-      const clients = await fetchClientsFromSheet()
+      const clients = Object.values((await db.ref("clients").once("value")).val() || {})
       for(const name of samples){
-        const exists = clients.some(c => c.name === name)
+        const exists = clients.some(c => (c.name||"") === name)
         if(!exists){
-          await adminWrite("upsertClient", { key: emailKey(name), name, createdAt: new Date().toISOString(), createdBy: "system" })
+          await db.ref("clients").child(emailKey(name)).set({ name, createdAt: new Date().toISOString(), createdBy: "system" })
+          mirrorToSheet("upsertClient", { key: emailKey(name), name, createdAt: new Date().toISOString(), createdBy: "system" })
         }
       }
     }
