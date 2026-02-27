@@ -144,7 +144,7 @@
     const SHEET_ADMINS_NAME = "BD_ADMINS"
     // Reemplazar por tu URL de Web App de Apps Script para habilitar escritura en la hoja.
     // Debe aceptar JSON { action, payload } para createTicket/updateTicket/deleteTicket.
-    const SHEET_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxP1VxrN7ZzkwS1voiOy2LL8riWErSN1OFESmxgY6ogxv2t0auX8h6Acm2nzDwSovuxNw/exec"
+    const SHEET_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbyRLv3IqWF7O-045AsuEQzqOn2FstgF8X3TfBXQB6eSLJr44u6nm3QUQH_mtBaSjVYUhw/exec"
     let cachedTickets = []
 
     function emailKey(email){ return (email||"").toLowerCase().replace(/[.#$/\[\]]/g, "_") }
@@ -353,6 +353,7 @@
       if(data && data.ok === false){
         const rawError = String(data.error || "Error al guardar en Google Sheets")
         if(rawError.includes("setHeaders")) throw new Error("Tu Apps Script está desactualizado (usa response.setHeaders). Reemplazá el script por APPS_SCRIPT.gs y volvé a desplegar la Web App.")
+        if(rawError.includes("Acción no soportada") && (action === "upsertUser" || action === "deleteUser")) return { ok: true, ignored: true }
         throw new Error(rawError)
       }
       return data

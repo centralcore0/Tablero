@@ -53,6 +53,12 @@ function doPost(e) {
       return jsonOutput({ ok: true, action, deleted: row > 1 });
     }
 
+
+    if (action === 'upsertUser' || action === 'deleteUser') {
+      // Compatibilidad hacia atrás: esta versión no persiste usuarios en Sheets.
+      return jsonOutput({ ok: true, action, ignored: true });
+    }
+
     if (adminActions.has(action)) {
       const sheet = getSheetByName_(body.adminSheet || ADMIN_SHEET_NAME);
       if (!sheet) return jsonOutput({ ok: false, error: `No existe hoja ${ADMIN_SHEET_NAME}` });
