@@ -16,6 +16,7 @@
 const DEFAULT_GID = '0';
 const TICKETS_SHEET_NAME = 'BD';
 const ADMIN_SHEET_NAME = 'BD_ADMINS';
+const DEFAULT_DRIVE_FOLDER_ID = '1IZ0GHXqSQzbHLnBmSAitnah3xDq8vy94';
 
 function doGet() {
   // Importante: no usar response.setHeaders (no existe en Apps Script ContentService).
@@ -32,6 +33,11 @@ function doPost(e) {
 
     const adminActions = new Set(['upsertClient','deleteClient']);
     const ticketActions = new Set(['createTicket','updateTicket','deleteTicket']);
+
+    if (action === 'uploadDriveFile') {
+      const file = saveFileToDrive_(payload);
+      return jsonOutput({ ok: true, action, fileId: file.getId(), url: file.getUrl(), name: file.getName() });
+    }
 
     if (ticketActions.has(action)) {
       const sheet = getSheetByName_(body.ticketSheet || TICKETS_SHEET_NAME) || getSheetByGid_(String(body.gid || DEFAULT_GID));
@@ -79,6 +85,22 @@ function doPost(e) {
   } catch (err) {
     return jsonOutput({ ok: false, error: String(err && err.message ? err.message : err) });
   }
+}
+
+
+function saveFileToDrive_(payload) {
+  const folderId = String(payload.folderId || DEFAULT_DRIVE_FOLDER_ID).trim();
+  const fileName = String(payload.fileName || `archivo_${Date.now()}`);
+  const mimeType = String(payload.mimeType || 'application/octet-stream');
+  const contentBase64 = String(payload.contentBase64 || '');
+  if (!contentBase64) throw new Error('Falta contentBase64');
+
+  const bytes = Utilities.base64Decode(contentBase64);
+  const blob = Utilities.newBlob(bytes, mimeType, fileName);
+  const folder = DriveApp.getFolderById(folderId);
+  const file = folder.createFile(blob);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return file;
 }
 
 function parseBody_(e) {
