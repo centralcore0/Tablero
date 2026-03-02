@@ -11,6 +11,7 @@
 
   <style>
     :root{--bg-1:#030712;--bg-2:#0b1220;--surface:rgba(15,23,42,.58);--stroke:rgba(148,163,184,.24);--text:#e2e8f0;--muted:#94a3b8;--accent:#7c3aed;--accent-2:#06b6d4;--danger:#dc2626;--ok:#16a34a}
+    body.light{--bg-1:#f8fafc;--bg-2:#e2e8f0;--surface:rgba(255,255,255,.9);--stroke:rgba(15,23,42,.16);--text:#0f172a;--muted:#334155;--accent:#4f46e5;--accent-2:#0891b2;--danger:#dc2626;--ok:#16a34a}
     *{box-sizing:border-box}
     body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--text);background:radial-gradient(1000px 500px at 10% -10%,rgba(124,58,237,.3),transparent 55%),radial-gradient(900px 500px at 100% -20%,rgba(6,182,212,.25),transparent 60%),linear-gradient(180deg,var(--bg-2),var(--bg-1));min-height:100vh;padding:clamp(12px,2.4vw,26px)}
     .container{max-width:1400px;margin:auto}
@@ -131,6 +132,9 @@
     var cachedClients = globalThis.cachedClients || []
     var consultorRefreshTimer = globalThis.consultorRefreshTimer || null
     var loginInProgress = false
+    var uiTheme = localStorage.getItem("uiTheme") || "dark"
+    var adminPanelTab = "config"
+    var ticketFilterAnalyst = ""
 
     const STATUS = {
       unassigned: "Pendientes de asignar",
@@ -171,6 +175,23 @@
       if(p === "alta") return "priorityAlta"
       if(p === "baja") return "priorityBaja"
       return "priorityMedia"
+    }
+
+    function applyTheme(){
+      document.body.classList.toggle("light", uiTheme === "light")
+    }
+
+    function toggleTheme(){
+      uiTheme = uiTheme === "light" ? "dark" : "light"
+      localStorage.setItem("uiTheme", uiTheme)
+      applyTheme()
+      const btn = document.getElementById("themeToggleBtn")
+      if(btn) btn.textContent = uiTheme === "light" ? "🌙 Modo oscuro" : "☀️ Modo claro"
+    }
+
+    function setAdminTab(tab){
+      adminPanelTab = tab
+      renderApp()
     }
 
 
@@ -271,6 +292,13 @@
       if(clientFilterSelect){
         clientFilterSelect.innerHTML = `<option value="">Todos los clientes</option>${cachedClients.map(c => `<option value="${htmlEscape(c)}">${htmlEscape(c)}</option>`).join("")}`
         clientFilterSelect.value = ticketFilterClient
+      }
+
+      const analystFilterSelect = document.getElementById("filterAnalyst")
+      if(analystFilterSelect){
+        const analysts = Object.values((await db.ref("users_by_email").once("value")).val() || {}).filter(u => u && u.role === "analista" && u.active !== false).map(u => (u.email||"").toLowerCase())
+        analystFilterSelect.innerHTML = `<option value="">Todos los analistas</option>${analysts.map(a => `<option value="${htmlEscape(a)}">${htmlEscape(a)}</option>`).join("")}`
+        analystFilterSelect.value = ticketFilterAnalyst
       }
 
       const ticketClientSelect = document.getElementById("tClient")
@@ -448,6 +476,7 @@
 
     function renderApp(){
       const isAdmin = currentRole === "admin"
+      const isAnalyst = currentRole === "analista"
       const canCreateTicket = currentRole === "admin" || currentRole === "analista" || currentRole === "consultor"
 
       document.getElementById("app").innerHTML = `
@@ -460,6 +489,7 @@
               </div>
               <div class="inline">
                 ${canCreateTicket?`<button onclick="openTicketModal()">+ Nuevo ticket</button>`:""}
+                <button id="themeToggleBtn" class="ghost" onclick="toggleTheme()">${uiTheme === "light" ? "🌙 Modo oscuro" : "☀️ Modo claro"}</button>
                 <button class="secondary" onclick="logout()">Cerrar sesión</button>
               </div>
             </div>
@@ -474,64 +504,48 @@
                 <div class="kpi"><div class="label">Analistas</div><div class="value" id="kpiOperators">-</div></div>
                 ${currentRole !== "consultor" ? `<div class="kpi"><div class="label">Último acceso analista</div><div class="value" style="font-size:14px;margin-top:8px" id="kpiLastAccess">-</div></div>` : ""}
               </div>
-              ${currentRole !== "consultor" ? `
-              <div style="margin-top:14px">
-                <div class="inline" style="justify-content:space-between;align-items:center">
-                  <h3 style="margin:0">Actividad reciente</h3>
-                  <button class="ghost" onclick="loadDashboard()">Actualizar</button>
-                </div>
-                <div id="urgentAlerts" style="margin-top:10px"></div>
-                <div id="recentActivity" style="margin-top:10px"></div>
-              </div>
-              ` : ``}
+              ${currentRole !== "consultor" ? `<div id="urgentAlerts" style="margin-top:10px"></div>` : ``}
             </div>
           </div>
 
           ${isAdmin?`
             <div class="card">
-              <h3 style="margin-top:0">Gestión de usuarios</h3>
-              <div class="row">
-                <div><label>Email</label><input id="uEmail"></div>
-                <div><label>Contraseña</label><input id="uPassword" type="text"></div>
+              <div class="inline" style="margin-bottom:10px">
+                <button class="${adminPanelTab==='config'?'':'ghost'}" onclick="setAdminTab('config')">Configuraciones</button>
+                <button class="${adminPanelTab==='activity'?'':'ghost'}" onclick="setAdminTab('activity')">Actividad reciente</button>
               </div>
-              <div class="row">
-                <div><label>Rol</label><select id="uRole"><option value="consultor">Consultor</option><option value="analista">Analista</option><option value="admin">Admin</option></select></div>
-                <div style="display:flex;align-items:flex-end"><button onclick="saveUserAccess()">Guardar usuario</button></div>
-              </div>
-              <div id="usersList" class="small"></div>
-              <hr style="border-color:rgba(148,163,184,.2);margin:12px 0">
-              <h4 style="margin:0 0 8px">Clientes</h4>
-              <div class="row">
-                <div><label>Nuevo cliente</label><input id="cName"></div>
-                <div style="display:flex;align-items:flex-end"><button onclick="saveClient()">Agregar cliente</button></div>
-              </div>
-              <div id="clientsList" class="small"></div>
+              ${adminPanelTab==='config' ? `
+                <h3 style="margin-top:0">Gestión de usuarios</h3>
+                <div class="row"><div><label>Email</label><input id="uEmail"></div><div><label>Contraseña</label><input id="uPassword" type="text"></div></div>
+                <div class="row"><div><label>Rol</label><select id="uRole"><option value="consultor">Consultor</option><option value="analista">Analista</option><option value="admin">Admin</option></select></div><div style="display:flex;align-items:flex-end"><button onclick="saveUserAccess()">Guardar usuario</button></div></div>
+                <div id="usersList" class="small"></div>
+                <hr style="border-color:rgba(148,163,184,.2);margin:12px 0">
+                <h4 style="margin:0 0 8px">Clientes</h4>
+                <div class="row"><div><label>Nuevo cliente</label><input id="cName"></div><div style="display:flex;align-items:flex-end"><button onclick="saveClient()">Agregar cliente</button></div></div>
+                <div id="clientsList" class="small"></div>
+              ` : `<h3 style="margin-top:0">Actividad reciente</h3><div id="adminRecentActivity" style="margin-top:10px;max-height:360px;overflow-y:auto;padding-right:4px"></div>`}
             </div>
           ` : currentRole === "consultor" ? `
-            <div class="card">
-              <div class="inline" style="justify-content:space-between;align-items:center">
-                <h3 style="margin:0">Actividad de comentarios</h3>
-                </div>
-              <div id="consultorCommentsActivity" style="margin-top:10px;max-height:300px;overflow-y:auto;padding-right:4px"></div>
-            </div>
-          ` : "<div></div>"}
+            <div class="card"><div class="inline" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Actividad de comentarios</h3></div><div id="consultorCommentsActivity" style="margin-top:10px;max-height:300px;overflow-y:auto;padding-right:4px"></div></div>
+          ` : `
+            <div class="card"><div class="inline" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Actividad reciente</h3><button class="ghost" onclick="loadDashboard()">Actualizar</button></div><div id="recentActivity" style="margin-top:10px;max-height:260px;overflow-y:auto;padding-right:4px"></div></div>
+          `}
         </div>
 
         <div class="card">
-          <div class="inline" style="justify-content:space-between;margin-bottom:10px">
-            <h3 style="margin:0">Tickets</h3>
-            <span class="small">Vista Kanban de operación</span>
-          </div>
+          <div class="inline" style="justify-content:space-between;margin-bottom:10px"><h3 style="margin:0">Tickets</h3><span class="small">Vista Kanban de operación</span></div>
           <div class="row">
             <div class="searchWrap"><input oninput="updateTicketSearch(this.value)" placeholder="Buscar por título, cliente o descripción"></div>
-                        <div><select id="filterClient" onchange="updateClientFilter(this.value)"><option value="">Todos los clientes</option></select></div>
+            <div><select id="filterClient" onchange="updateClientFilter(this.value)"><option value="">Todos los clientes</option></select></div>
+            ${isAnalyst?`<div><select id="filterAnalyst" onchange="updateAnalystFilter(this.value)"><option value="">Todos los analistas</option></select></div>`:""}
           </div>
         </div>
 
         <div class="card"><div class="boardWrap"><div id="boardContainer"></div></div></div>
       `
 
-      if(isAdmin){ loadUsersAdmin(); loadClientsAdmin() }
+      applyTheme()
+      if(isAdmin && adminPanelTab === 'config'){ loadUsersAdmin(); loadClientsAdmin() }
       if(currentRole === "consultor") startConsultorAutoRefresh(); else stopConsultorAutoRefresh()
       loadFilterOptions()
       loadTickets()
@@ -540,6 +554,7 @@
 
     function updateTicketSearch(value){ ticketSearchTerm = (value||"").trim().toLowerCase(); globalThis.ticketSearchTerm = ticketSearchTerm; loadTickets() }
     function updateClientFilter(value){ ticketFilterClient = (value||"").trim().toLowerCase(); globalThis.ticketFilterClient = ticketFilterClient; loadTickets() }
+    function updateAnalystFilter(value){ ticketFilterAnalyst = (value||"").trim().toLowerCase(); loadTickets() }
 
     function openTicketModal(){ document.getElementById("ticketModal").classList.remove("hidden") }
     function closeTicketModal(){
@@ -584,8 +599,6 @@
       await db.ref("tickets").child(dbKey).set(ticket)
       const savedTicket = { ...ticket, dbKey }
       mirrorToSheet("createTicket", savedTicket)
-      cachedTickets.unshift(savedTicket)
-      renderTicketsFromData(cachedTickets)
       logActivity("ticket_creado", { title, client, code })
       closeTicketModal()
       loadDashboard()
@@ -616,6 +629,7 @@
         const haystack = `${t.title||""} ${t.description||""} ${t.client||""} ${t.createdBy||""}`.toLowerCase()
         if(ticketSearchTerm && !haystack.includes(ticketSearchTerm)) return
         if(ticketFilterClient && !(String(t.client||"").toLowerCase().includes(ticketFilterClient))) return
+        if(ticketFilterAnalyst && !(String(t.assignedTo||"").toLowerCase().includes(ticketFilterAnalyst))) return
 
         const status = grouped[t.status] ? t.status : "unassigned"
         grouped[status].push(t)
@@ -633,28 +647,14 @@
     }
 
     function renderTicketCard(ticket, status){
-      if(currentRole === "consultor"){
-        return `
-          <div class="ticket ${priorityClass(ticket.priority)}">
-            <h5><span class="ticketCode">${htmlEscape(ticket.id||"-")}</span>${htmlEscape(ticket.title||"-")}</h5>
-            <div class="meta">Asignado a: ${htmlEscape(ticket.assignedTo||"Sin asignar")}</div>
-            <div class="meta deadline">Deadline: ${ticket.deadline ? htmlEscape(ticket.deadline) : "Sin fecha"}</div>
-            <div class="inline" style="margin-top:8px"><button class="ghost" onclick="openTicketDetailModal('${ticket.id}')">Ver detalle</button></div>${ticket.urgentRequested?`<div class="urgentFlag">Marcado como urgente</div>`:""}
-          </div>
-        `
-      }
-
       return `
         <div class="ticket ${priorityClass(ticket.priority)}">
           <h5><span class="ticketCode">${htmlEscape(ticket.id||"-")}</span>${htmlEscape(ticket.title||"-")}</h5>
-          <p>${htmlEscape(ticket.description||"-")}</p>
           <div class="meta">Cliente/Área: ${htmlEscape(ticket.client||"-")}</div>
-          <div class="meta">Prioridad: ${htmlEscape(ticket.priority||"Media")}</div>
-          <div class="meta">Creado por ${htmlEscape(ticket.createdBy||"-")} · ${ticket.createdAt?new Date(ticket.createdAt).toLocaleString():"-"}</div>
           <div class="meta">Asignado a: ${htmlEscape(ticket.assignedTo||"Sin asignar")}</div>
-            <div class="meta deadline">Deadline: ${ticket.deadline ? htmlEscape(ticket.deadline) : "Sin fecha"}</div>
-          ${renderTicketActions(ticket.id, status)}
-          ${renderComments(ticket.id, ticket.comments || {})}
+          <div class="meta deadline">Deadline: ${ticket.deadline ? htmlEscape(ticket.deadline) : "Sin fecha"}</div>
+          ${ticket.urgentRequested?`<div class="urgentFlag">Marcado como urgente</div>`:""}
+          <div class="inline" style="margin-top:8px"><button class="ghost" onclick="openTicketDetailModal('${ticket.id}')">Ver detalle</button></div>
         </div>
       `
     }
@@ -662,18 +662,23 @@
     async function openTicketDetailModal(id){
       const ticket = cachedTickets.find(t => t.id === id)
       if(!ticket) return alert("No se encontró el ticket")
+      const canEdit = currentRole === "admin" || currentRole === "analista"
+      const statusOptions = Object.entries(STATUS).map(([key,label]) => `<option value="${key}" ${ticket.status===key?"selected":""}>${label}</option>`).join("")
 
       document.getElementById("ticketDetailContent").innerHTML = `
         <div class="row">
           <div><label>Código</label><input value="${htmlEscape(ticket.id||"")}" disabled></div>
-          <div><label>Título</label><input value="${htmlEscape(ticket.title||"")}" disabled></div>
-          <div><label>Prioridad</label><input value="${htmlEscape(ticket.priority||"Media")}" disabled></div>
+          <div><label>Título</label><input id="detail-title-${ticket.id}" value="${htmlEscape(ticket.title||"")}" ${canEdit?"":"disabled"}></div>
+          <div><label>Prioridad</label><select id="detail-priority-${ticket.id}" ${canEdit?"":"disabled"}><option value="Alta" ${ticket.priority==='Alta'?'selected':''}>Alta</option><option value="Media" ${ticket.priority==='Media'?'selected':''}>Media</option><option value="Baja" ${ticket.priority==='Baja'?'selected':''}>Baja</option></select></div>
         </div>
-        <div><label>Detalle</label><textarea disabled>${htmlEscape(ticket.description||"")}</textarea></div>
-        <div><label>Cliente/Área</label><input value="${htmlEscape(ticket.client||"")}" disabled></div>
-        <div><label>Asignado a</label><input value="${htmlEscape(ticket.assignedTo||"Sin asignar")}" disabled></div>
-        <div><label>Deadline</label><input value="${htmlEscape(ticket.deadline||"")}" disabled></div>
-        ${currentRole === "consultor" ? `<div class="inline" style="margin-top:6px"><button class="urgentBtn" onclick="toggleUrgent('${ticket.id}')">${ticket.urgentRequested ? "Quitar urgente" : "🚨 Marcar urgente"}</button><input id="requestedDeadline-${ticket.id}" type="date" value="${htmlEscape(ticket.requestedDeadline||"")}" style="margin:0;max-width:180px" /><button class="ghost" onclick="requestDeadlineChange('${ticket.id}')">Solicitar cambiar deadline</button></div>${ticket.deadlineChangeStatus === "pending" ? `<div class="small">Cambio solicitado para: ${htmlEscape(ticket.requestedDeadline||"-")}</div>` : ""}` : `${ticket.urgentRequested ? `<div class="urgentFlag">Marcado como urgente</div>` : ""}${ticket.deadlineChangeStatus === "pending" ? `<div class="small">Solicitud de cambio de deadline: ${htmlEscape(ticket.requestedDeadline||"-")}<div class="inline" style="margin-top:6px"><button class="ghost" onclick="applyDeadlineDecision('${ticket.id}', true)">Aprobar deadline</button><button class="danger" onclick="applyDeadlineDecision('${ticket.id}', false)">Rechazar</button></div></div>` : ""}` }
+        <div><label>Detalle</label><textarea id="detail-description-${ticket.id}" ${canEdit?"":"disabled"}>${htmlEscape(ticket.description||"")}</textarea></div>
+        <div class="row">
+          <div><label>Cliente/Área</label><input id="detail-client-${ticket.id}" value="${htmlEscape(ticket.client||"")}" ${canEdit?"":"disabled"}></div>
+          <div><label>Asignado a</label><input id="detail-assigned-${ticket.id}" value="${htmlEscape(ticket.assignedTo||"")}" ${canEdit?"":"disabled"}></div>
+          <div><label>Deadline</label><input id="detail-deadline-${ticket.id}" type="date" value="${htmlEscape(ticket.deadline||"")}" ${canEdit?"":"disabled"}></div>
+        </div>
+        ${canEdit ? `<div class="inline"><div style="min-width:240px"><label>Estado</label><select id="detail-status-${ticket.id}" style="margin:0">${statusOptions}</select></div><button class="ghost" onclick="saveTicketEdits('${ticket.id}')">Guardar cambios</button></div>` : ''}
+        ${currentRole === "consultor" ? `<div class="inline" style="margin-top:6px"><button class="urgentBtn" onclick="toggleUrgent('${ticket.id}')">${ticket.urgentRequested ? "Quitar urgente" : "🚨 Marcar urgente"}</button><input id="requestedDeadline-${ticket.id}" type="date" value="${htmlEscape(ticket.requestedDeadline||"")}" style="margin:0;max-width:180px" onfocus="this.showPicker && this.showPicker()" onkeydown="return false" /><button class="ghost" onclick="requestDeadlineChange('${ticket.id}')">Solicitar cambiar deadline</button></div>${ticket.deadlineChangeStatus === "pending" ? `<div class="small">Cambio solicitado para: ${htmlEscape(ticket.requestedDeadline||"-")}</div>` : ""}` : `${ticket.urgentRequested ? `<div class="urgentFlag">Marcado como urgente</div>` : ""}${ticket.deadlineChangeStatus === "pending" ? `<div class="small">Solicitud de cambio de deadline: ${htmlEscape(ticket.requestedDeadline||"-")}<div class="inline" style="margin-top:6px"><button class="ghost" onclick="applyDeadlineDecision('${ticket.id}', true)">Aprobar deadline</button><button class="danger" onclick="applyDeadlineDecision('${ticket.id}', false)">Rechazar</button></div></div>` : ""}` }
         ${renderComments(id, ticket.comments || {})}
       `
       document.getElementById("ticketDetailModal").classList.remove("hidden")
@@ -682,6 +687,32 @@
     function closeTicketDetailModal(){
       document.getElementById("ticketDetailModal").classList.add("hidden")
       document.getElementById("ticketDetailContent").innerHTML = ""
+    }
+
+
+    async function saveTicketEdits(id){
+      if(!(currentRole === "admin" || currentRole === "analista")) return
+      const ticket = cachedTickets.find(t => t.id === id)
+      if(!ticket) return
+      const updated = {
+        ...ticket,
+        title: (document.getElementById(`detail-title-${id}`)?.value || "").trim() || ticket.title,
+        description: (document.getElementById(`detail-description-${id}`)?.value || "").trim() || ticket.description,
+        priority: (document.getElementById(`detail-priority-${id}`)?.value || ticket.priority),
+        client: (document.getElementById(`detail-client-${id}`)?.value || "").trim() || ticket.client,
+        assignedTo: (document.getElementById(`detail-assigned-${id}`)?.value || "").trim().toLowerCase(),
+        deadline: (document.getElementById(`detail-deadline-${id}`)?.value || "").trim(),
+        status: (document.getElementById(`detail-status-${id}`)?.value || ticket.status),
+        updatedAt: new Date().toISOString(),
+        updatedBy: currentUser.email
+      }
+      await db.ref("tickets").child(ticket.dbKey || emailKey(ticket.id)).update(updated)
+      mirrorToSheet("updateTicket", { id, ...updated })
+      const ix = cachedTickets.findIndex(t => t.id === id)
+      if(ix >= 0) cachedTickets[ix] = updated
+      renderTicketsFromData(cachedTickets)
+      await loadDashboard()
+      showToast("Ticket actualizado", "ok")
     }
 
     function renderTicketActions(id, currentStatus){
@@ -718,11 +749,11 @@
     }
 
     function renderComments(id, comments){
-      const list = Object.values(comments || {}).sort((a,b)=>new Date(a.createdAt||0)-new Date(b.createdAt||0))
+      const list = Object.entries(comments || {}).map(([cid,c]) => ({ id: cid, ...(c||{}) })).sort((a,b)=>new Date(a.createdAt||0)-new Date(b.createdAt||0))
       return `
         <div style="margin-top:10px;border-top:1px solid rgba(148,163,184,.2);padding-top:8px">
           <div class="small" style="margin-bottom:6px">Comentarios</div>
-          ${list.length ? list.map(c=>`<div class="small" style="margin-bottom:4px"><strong>${htmlEscape(c.author||"-")}</strong>: ${htmlEscape(c.message||"")} <span style="opacity:.8">(${c.createdAt?new Date(c.createdAt).toLocaleString():""})</span></div>`).join("") : `<div class="small">Sin comentarios</div>`}
+          ${list.length ? list.map(c=>`<div class="small" style="margin-bottom:8px"><strong>${htmlEscape(c.author||"-")}</strong>: ${htmlEscape(c.message||"")} <span style="opacity:.8">(${c.createdAt?new Date(c.createdAt).toLocaleString():""})</span><div class="inline" style="margin-top:4px"><button class="ghost" style="padding:4px 8px" onclick="reactToComment('${id}','${c.id||""}','👍')">👍 ${Object.keys((c.reactions||{}).thumbsUp||{}).length}</button><button class="ghost" style="padding:4px 8px" onclick="reactToComment('${id}','${c.id||""}','❤️')">❤️ ${Object.keys((c.reactions||{}).heart||{}).length}</button><button class="ghost" style="padding:4px 8px" onclick="reactToComment('${id}','${c.id||""}','👀')">👀 ${Object.keys((c.reactions||{}).eyes||{}).length}</button></div></div>`).join("") : `<div class="small">Sin comentarios</div>`}
           <div class="inline" style="margin-top:6px">
             <input id="comment-${id}" placeholder="Escribí un comentario" style="margin:0" />
             <button class="ghost" onclick="addComment('${id}')">Comentar</button>
@@ -860,6 +891,31 @@
       showToast("Comentario enviado correctamente", "ok")
     }
 
+
+
+    async function reactToComment(ticketId, commentId, emoji){
+      const ticket = cachedTickets.find(t => t.id === ticketId)
+      if(!ticket || !commentId) return
+      const comments = { ...(ticket.comments || {}) }
+      const comment = { ...(comments[commentId] || {}) }
+      const reactions = { ...(comment.reactions || {}) }
+      const key = emoji === "👍" ? "thumbsUp" : emoji === "❤️" ? "heart" : "eyes"
+      const users = { ...(reactions[key] || {}) }
+      const me = emailKey(currentUser.email)
+      if(users[me]) delete users[me]; else users[me] = true
+      reactions[key] = users
+      comment.reactions = reactions
+      comments[commentId] = comment
+      const updated = { ...ticket, comments, updatedAt: new Date().toISOString(), updatedBy: currentUser.email }
+      await db.ref("tickets").child(ticket.dbKey || emailKey(ticket.id)).update(updated)
+      mirrorToSheet("updateTicket", { id: ticketId, ...updated })
+      const ix = cachedTickets.findIndex(t => t.id === ticketId)
+      if(ix >= 0) cachedTickets[ix] = updated
+      renderTicketsFromData(cachedTickets)
+      const detailOpen = !document.getElementById("ticketDetailModal").classList.contains("hidden")
+      if(detailOpen) openTicketDetailModal(ticketId)
+    }
+
     async function deleteTicket(id){
       if(!confirm("¿Seguro que querés borrar este ticket?")) return
       showToast("Eliminando ticket...", "info", 1600)
@@ -957,9 +1013,14 @@
           return
         }
 
-        const container = document.getElementById("recentActivity")
+        const container = document.getElementById(currentRole === "admin" ? "adminRecentActivity" : "recentActivity")
         if(!container) return
-        const sorted = activity.sort((a,b)=>new Date(b.timestampIso||0)-new Date(a.timestampIso||0))
+        let sorted = activity.sort((a,b)=>new Date(b.timestampIso||0)-new Date(a.timestampIso||0))
+        if(currentRole === "analista"){
+          const myTickets = new Set(normalizedTickets.filter(t => String(t.assignedTo||"").toLowerCase() === String(currentUser.email||"").toLowerCase()).map(t => t.id))
+          const roleByEmail = Object.fromEntries(users.map(u => [String(u.email||"").toLowerCase(), u.role]))
+          sorted = sorted.filter(it => it.eventType === "ticket_comentario" && myTickets.has(it.ticketId) && roleByEmail[String(it.email||"").toLowerCase()] === "consultor")
+        }
         if(!sorted.length){
           container.innerHTML = `<p class="small">Sin actividad reciente.</p>`
         }else{
@@ -992,6 +1053,7 @@
 
     async function init(){
       try{
+        applyTheme()
         renderLogin()
         await ensureDefaultUsers()
         await ensureDefaultClients()
