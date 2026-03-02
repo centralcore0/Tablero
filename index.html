@@ -53,7 +53,7 @@
     .detailLayout{display:grid;grid-template-columns:1fr;gap:12px}
     .codeBadge{display:inline-block;background:rgba(59,130,246,.2);color:#bfdbfe;padding:6px 10px;border-radius:10px;font-weight:700;border:1px solid rgba(59,130,246,.45)}
     @media (min-width:980px){.detailLayout.withSidebar{grid-template-columns:1.55fr .55fr}.detailSidebar{border-left:1px solid rgba(148,163,184,.25);padding-left:12px}}
-    body.light .ticket,body.light .column,body.light .feedItem,body.light .commentItem{background:#ffffff;color:#0f172a;border-color:#64748b}
+    body.light .ticket,body.light .column,body.light .feedItem,body.light .commentItem{background:#ffffff;color:#0f172a;border-color:#64748b;box-shadow:0 8px 20px rgba(15,23,42,.10)}
     body.light .ticket .meta,body.light .small,body.light .feedMeta,body.light label{color:#1f2937}
     body.light input,body.light select,body.light textarea{background:#fff;color:#0f172a;border-color:#94a3b8}
     body.light .column h4{color:#0f172a}
@@ -113,7 +113,7 @@
   <div id="ticketDetailModal" class="modalBack hidden">
     <div class="card modal">
       <div class="inline" style="justify-content:space-between;margin-bottom:8px">
-        <h3 style="margin:0">Detalle de ticket</h3>
+        <h3 id="ticketDetailTitle" style="margin:0">Detalle del ticket</h3>
         <button class="secondary" onclick="closeTicketDetailModal()">Cerrar</button>
       </div>
       <div id="ticketDetailContent"></div>
@@ -163,7 +163,7 @@
     const SHEET_ADMINS_NAME = "BD_ADMINS"
     // Reemplazar por tu URL de Web App de Apps Script para habilitar escritura en la hoja.
     // Debe aceptar JSON { action, payload } para createTicket/updateTicket/deleteTicket.
-    const SHEET_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbz2xyQRJ4lXzdA5-W_LZJVdoWDx_Gc05vofgwj-Pwzlw-YyaCcfpIzycYCjWg-ziKFNQg/exec"
+    const SHEET_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwUyvGndwr5K7uhvgNyC_CBGt8FI6JlW62GExQsl5sxvGIYv_mHBKxotgDgaEN7EmFTwA/exec"
     const DRIVE_FOLDER_ID = "1IZ0GHXqSQzbHLnBmSAitnah3xDq8vy94"
     let cachedTickets = []
 
@@ -708,9 +708,12 @@
       const analystOptions = analysts.map(a => `<option value="${htmlEscape(a)}" ${String(ticket.assignedTo||"").toLowerCase()===a?'selected':''}>${htmlEscape(a)}</option>`).join("")
       const statusOptions = Object.entries(STATUS).map(([key,label]) => `<option value="${key}" ${ticket.status===key?"selected":""}>${label}</option>`).join("")
 
+      const titleEl = document.getElementById("ticketDetailTitle")
+      if(titleEl) titleEl.textContent = `Detalle del ticket · ${ticket.id||"-"}`
+
       document.getElementById("ticketDetailContent").innerHTML = `
         <div class="inline" style="justify-content:flex-start;align-items:center;gap:10px">
-          <div><label>Código</label><div class="codeBadge">${htmlEscape(ticket.id||"-")}</div></div>
+          <div class="codeBadge">${htmlEscape(ticket.id||"-")}</div>
           ${canEdit && ticket.urgentRequested ? `<span class="urgentTopFlag">🚨 URGENTE</span>` : ''}
         </div>
         <div class="detailLayout ${canEdit ? "withSidebar" : ""}">
@@ -736,6 +739,39 @@
     function closeTicketDetailModal(){
       document.getElementById("ticketDetailModal").classList.add("hidden")
       document.getElementById("ticketDetailContent").innerHTML = ""
+      const titleEl = document.getElementById("ticketDetailTitle")
+      if(titleEl) titleEl.textContent = "Detalle del ticket"
+    }
+
+
+    async function assignTicketToMe(id){
+      const owner = document.getElementById(`detail-owner-${id}`)
+      if(owner){ owner.value = (currentUser.email||"").toLowerCase(); autoSaveTicketDetail(id) }
+    }
+
+    async function autoSaveTicketDetail(id){
+      if(!(currentRole === "admin" || currentRole === "analista")) return
+      const ticket = cachedTickets.find(t => t.id === id)
+      if(!ticket) return
+      const updated = {
+        ...ticket,
+        title: (document.getElementById(`detail-title-${id}`)?.value || "").trim() || ticket.title,
+        description: (document.getElementById(`detail-description-${id}`)?.value || "").trim() || ticket.description,
+        priority: (document.getElementById(`detail-priority-${id}`)?.value || ticket.priority),
+        client: (document.getElementById(`detail-client-${id}`)?.value || "").trim() || ticket.client,
+        assignedTo: (document.getElementById(`detail-owner-${id}`)?.value || "").trim().toLowerCase(),
+        deadline: (document.getElementById(`detail-deadline-${id}`)?.value || "").trim(),
+        status: (document.getElementById(`detail-status-${id}`)?.value || ticket.status),
+        updatedAt: new Date().toISOString(),
+        updatedBy: currentUser.email
+      }
+      await db.ref("tickets").child(ticket.dbKey || emailKey(ticket.id)).update(updated)
+      mirrorToSheet("updateTicket", { id, ...updated })
+      const ix = cachedTickets.findIndex(t => t.id === id)
+      if(ix >= 0) cachedTickets[ix] = updated
+      renderTicketsFromData(cachedTickets)
+      await loadDashboard()
+      showToast("Ticket actualizado", "ok")
     }
 
 
