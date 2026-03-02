@@ -10,7 +10,7 @@
  *
  * Estructura esperada (Sheet gid=0):
  * A:id | B:title | C:description | D:priority | E:client | F:status |
- * G:assignedTo | H:comments(JSON) | I:createdAt | J:createdBy | K:updatedAt | L:updatedBy | M:deadline | N:urgentRequested
+ * G:assignedTo | H:comments(JSON) | I:createdAt | J:createdBy | K:updatedAt | L:updatedBy | M:deadline | N:urgentRequested | O:requestedDeadline | P:deadlineChangeStatus | Q:deadlineChangeRequestedBy | R:deadlineChangeRequestedAt | S:deadlineChangeReviewedBy
  */
 
 const DEFAULT_GID = '0';
@@ -120,7 +120,7 @@ function getSheetByGid_(gid) {
 function ensureTicketHeader_(sheet) {
   const expected = [
     'id', 'title', 'description', 'priority', 'client', 'status',
-    'assignedTo', 'comments', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy', 'deadline', 'urgentRequested'
+    'assignedTo', 'comments', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy', 'deadline', 'urgentRequested', 'requestedDeadline', 'deadlineChangeStatus', 'deadlineChangeRequestedBy', 'deadlineChangeRequestedAt', 'deadlineChangeReviewedBy'
   ];
   const firstRow = sheet.getRange(1, 1, 1, expected.length).getValues()[0];
   const hasHeader = firstRow.some(v => String(v || '').trim() !== '');
@@ -148,6 +148,20 @@ function findTicketRow_(sheet, id) {
   return -1;
 }
 
+
+function normalizeComments_(value) {
+  if (!value) return '{}';
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return JSON.stringify(parsed || {});
+    } catch (_) {
+      return '{}';
+    }
+  }
+  return JSON.stringify(value);
+}
+
 function normalizeTicket_(p) {
   const now = new Date().toISOString();
   return {
@@ -158,13 +172,18 @@ function normalizeTicket_(p) {
     client: String(p.client || ''),
     status: String(p.status || 'unassigned'),
     assignedTo: String(p.assignedTo || ''),
-    comments: JSON.stringify(p.comments || {}),
+    comments: normalizeComments_(p.comments),
     createdAt: String(p.createdAt || now),
     createdBy: String(p.createdBy || ''),
     updatedAt: String(p.updatedAt || now),
     updatedBy: String(p.updatedBy || ''),
     deadline: String(p.deadline || ''),
-    urgentRequested: String(!!p.urgentRequested)
+    urgentRequested: String(!!p.urgentRequested),
+    requestedDeadline: String(p.requestedDeadline || ''),
+    deadlineChangeStatus: String(p.deadlineChangeStatus || 'none'),
+    deadlineChangeRequestedBy: String(p.deadlineChangeRequestedBy || ''),
+    deadlineChangeRequestedAt: String(p.deadlineChangeRequestedAt || ''),
+    deadlineChangeReviewedBy: String(p.deadlineChangeReviewedBy || '')
   };
 }
 
@@ -174,13 +193,14 @@ function upsertTicket_(sheet, payload, createOnly) {
 
   const rowData = [[
     t.id, t.title, t.description, t.priority, t.client, t.status,
-    t.assignedTo, t.comments, t.createdAt, t.createdBy, t.updatedAt, t.updatedBy, t.deadline, t.urgentRequested
+    t.assignedTo, t.comments, t.createdAt, t.createdBy, t.updatedAt, t.updatedBy, t.deadline, t.urgentRequested,
+    t.requestedDeadline, t.deadlineChangeStatus, t.deadlineChangeRequestedBy, t.deadlineChangeRequestedAt, t.deadlineChangeReviewedBy
   ]];
 
   const existingRow = findTicketRow_(sheet, t.id);
   if (existingRow > 1) {
     if (createOnly) return;
-    sheet.getRange(existingRow, 1, 1, 14).setValues(rowData);
+    sheet.getRange(existingRow, 1, 1, 19).setValues(rowData);
   } else {
     sheet.appendRow(rowData[0]);
   }
