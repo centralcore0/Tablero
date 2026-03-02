@@ -982,6 +982,31 @@
       if(detailOpen) openTicketDetailModal(ticketId)
     }
 
+
+
+    async function reactToComment(ticketId, commentId, emoji){
+      const ticket = cachedTickets.find(t => t.id === ticketId)
+      if(!ticket || !commentId) return
+      const comments = { ...(ticket.comments || {}) }
+      const comment = { ...(comments[commentId] || {}) }
+      const reactions = { ...(comment.reactions || {}) }
+      const key = emoji === "👍" ? "thumbsUp" : emoji === "❤️" ? "heart" : "eyes"
+      const users = { ...(reactions[key] || {}) }
+      const me = emailKey(currentUser.email)
+      if(users[me]) delete users[me]; else users[me] = true
+      reactions[key] = users
+      comment.reactions = reactions
+      comments[commentId] = comment
+      const updated = { ...ticket, comments, updatedAt: new Date().toISOString(), updatedBy: currentUser.email }
+      await db.ref("tickets").child(ticket.dbKey || emailKey(ticket.id)).update(updated)
+      mirrorToSheet("updateTicket", { id: ticketId, ...updated })
+      const ix = cachedTickets.findIndex(t => t.id === ticketId)
+      if(ix >= 0) cachedTickets[ix] = updated
+      renderTicketsFromData(cachedTickets)
+      const detailOpen = !document.getElementById("ticketDetailModal").classList.contains("hidden")
+      if(detailOpen) openTicketDetailModal(ticketId)
+    }
+
     async function deleteTicket(id){
       if(!confirm("¿Seguro que querés borrar este ticket?")) return
       showToast("Eliminando ticket...", "info", 1600)
