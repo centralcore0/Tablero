@@ -397,6 +397,8 @@
       mirrorToSheet("upsertClient", { key: emailKey(name), name, createdAt: new Date().toISOString(), createdBy: currentUser.email })
       const input = document.getElementById("cName")
       if(input) input.value = ""
+      const fileInput = document.getElementById(`comment-file-${id}`)
+      if(fileInput) fileInput.value = ""
       showToast("Cliente agregado", "ok")
       await loadClientsAdmin()
       await loadFilterOptions()
