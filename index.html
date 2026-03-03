@@ -50,6 +50,26 @@
     .commentItem{padding:10px;border:1px solid rgba(148,163,184,.28);border-radius:12px;background:rgba(2,6,23,.35);margin-bottom:8px}
     .commentHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
     .commentActions{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted)}
+    .commentBody{margin-top:4px}
+    .commentFooter{display:flex;justify-content:space-between;align-items:center;margin-top:10px;gap:8px}
+    .commentDeleteText{font-size:12px;color:var(--muted);cursor:pointer;text-decoration:underline;background:none;border:none;padding:0;box-shadow:none}
+    .commentDeleteText:hover{color:var(--danger)}
+    .commentsHeader{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+    .commentsTitle{font-size:22px;font-weight:700}
+    .activityTabs{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+    .activityTab{padding:6px 10px;border-radius:8px;border:1px solid var(--stroke);background:transparent;color:var(--text);cursor:pointer}
+    .activityTab.active{background:rgba(59,130,246,.18);border-color:rgba(59,130,246,.45)}
+    .commentComposer{margin-top:10px;border:1px solid var(--stroke);border-radius:12px;padding:10px;background:rgba(2,6,23,.25)}
+    .switchWrap{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+    .switch{position:relative;display:inline-block;width:42px;height:24px}
+    .switch input{opacity:0;width:0;height:0}
+    .slider{position:absolute;cursor:pointer;inset:0;background:#64748b;border-radius:999px;transition:.2s}
+    .slider:before{content:"";position:absolute;height:18px;width:18px;left:3px;top:3px;background:white;border-radius:50%;transition:.2s}
+    .switch input:checked + .slider{background:#2563eb}
+    .switch input:checked + .slider:before{transform:translateX(18px)}
+    .commentAvatar{width:28px;height:28px;border-radius:999px;object-fit:cover;border:1px solid var(--stroke);margin-right:8px}
+    .commentHeadLeft{display:flex;align-items:center}
+    .sortBtn{padding:6px 10px}
     .urgentTopFlag{display:inline-block;background:#b91c1c;color:#fff;padding:6px 10px;border-radius:999px;font-weight:700;box-shadow:0 8px 24px rgba(185,28,28,.45)}
     .detailLayout{display:grid;grid-template-columns:1fr;gap:12px}
     .codeBadge{display:inline-block;background:rgba(59,130,246,.2);color:#bfdbfe;padding:6px 10px;border-radius:10px;font-weight:700;border:1px solid rgba(59,130,246,.45)}
@@ -150,6 +170,8 @@
     var uiTheme = localStorage.getItem("uiTheme") || "light"
     var adminPanelTab = "panel"
     var ticketFilterAnalyst = ""
+    var commentSortOrderByTicket = {}
+    var ticketActivityTabById = {}
 
     const STATUS = {
       unassigned: "Pendientes de asignar",
@@ -165,7 +187,7 @@
     const SHEET_ADMINS_NAME = "BD_ADMINS"
     // Reemplazar por tu URL de Web App de Apps Script para habilitar escritura en la hoja.
     // Debe aceptar JSON { action, payload } para createTicket/updateTicket/deleteTicket.
-    const SHEET_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbw5XZFdRXWHSa69U4xflypmRSxR3Cjm2oLVVshah1FTRTGs7xqQAefPPcfwd7VdcFYIZw/exec"
+    const SHEET_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwUyvGndwr5K7uhvgNyC_CBGt8FI6JlW62GExQsl5sxvGIYv_mHBKxotgDgaEN7EmFTwA/exec"
     const DRIVE_FOLDER_ID = "1IZ0GHXqSQzbHLnBmSAitnah3xDq8vy94"
     let cachedTickets = []
 
@@ -288,7 +310,9 @@
           active: String(cols[5]||"true") !== "false",
           createdAt: String(cols[6]||""),
           createdBy: String(cols[7]||""),
-          lastAccessAt: String(cols[8]||"")
+          lastAccessAt: String(cols[8]||""),
+          photoUrl: String(cols[9]||""),
+          photoFileId: String(cols[10]||"")
         }))
     }
 
@@ -477,7 +501,7 @@
       for(const user of DEFAULT_USERS){
         const exists = users.some(u => (u.email||"").toLowerCase() === user.email.toLowerCase())
         if(!exists){
-          await adminWrite("upsertUser", {
+          const payload = {
             key: emailKey(user.email),
             email: user.email,
             password: user.password,
@@ -485,7 +509,9 @@
             active: true,
             createdAt: new Date().toISOString(),
             createdBy: "system"
-          })
+          }
+          await adminWrite("upsertUser", payload)
+          await db.ref("users_by_email").child(payload.key).set(payload)
         }
       }
     }
@@ -562,7 +588,7 @@
           <div class="card"><h3 style="margin-top:0">Configuraciones</h3>
             <h4 style="margin:0 0 8px">Gestión de usuarios</h4>
             <div class="row"><div><label>Email</label><input id="uEmail"></div><div><label>Contraseña</label><input id="uPassword" type="text"></div></div>
-            <div class="row"><div><label>Rol</label><select id="uRole"><option value="consultor">Consultor</option><option value="analista">Analista</option><option value="admin">Admin</option></select></div><div style="display:flex;align-items:flex-end"><button onclick="saveUserAccess()">Guardar usuario</button></div></div>
+            <div class="row"><div><label>Rol</label><select id="uRole"><option value="consultor">Consultor</option><option value="analista">Analista</option><option value="admin">Admin</option></select></div><div><label>Foto</label><input id="uPhoto" type="file" accept="image/*"></div><div style="display:flex;align-items:flex-end"><button onclick="saveUserAccess()">Guardar usuario</button></div></div>
             <div id="usersList" class="small"></div>
             <hr style="border-color:rgba(148,163,184,.2);margin:12px 0">
             <h4 style="margin:0 0 8px">Clientes</h4>
@@ -717,11 +743,15 @@
       const ticket = cachedTickets.find(t => t.id === id)
       if(!ticket) return alert("No se encontró el ticket")
       const canEdit = currentRole === "admin" || currentRole === "analista"
+      const usersByEmail = (await db.ref("users_by_email").once("value")).val() || {}
       let analysts = []
       if(canEdit){
-        analysts = Object.values((await db.ref("users_by_email").once("value")).val() || {}).filter(u => u && u.role === "analista" && u.active !== false).map(u => (u.email||"").toLowerCase())
+        analysts = Object.values(usersByEmail).filter(u => u && u.role === "analista" && u.active !== false).map(u => (u.email||"").toLowerCase())
       }
+      const consultors = Object.values(usersByEmail).filter(u => u && u.role === "consultor" && u.active !== false).map(u => (u.email||"").toLowerCase()).sort()
       const analystOptions = analysts.map(a => `<option value="${htmlEscape(a)}" ${String(ticket.assignedTo||"").toLowerCase()===a?'selected':''}>${htmlEscape(a)}</option>`).join("")
+      const currentInformer = String(ticket.informer || ticket.createdBy || "").toLowerCase()
+      const informerOptions = `<option value="">Seleccionar informador</option>${consultors.map(c => `<option value="${htmlEscape(c)}" ${currentInformer===c?"selected":""}>${htmlEscape(c)}</option>`).join("")}`
       const statusOptions = Object.entries(STATUS).map(([key,label]) => `<option value="${key}" ${ticket.status===key?"selected":""}>${label}</option>`).join("")
 
       const titleEl = document.getElementById("ticketDetailTitle")
@@ -741,24 +771,23 @@
             </div>
             <div><label>Detalle</label><textarea id="detail-description-${ticket.id}" ${canEdit?`onchange="autoSaveTicketDetail('${ticket.id}')"`:""} ${canEdit?"":"disabled"}>${htmlEscape(ticket.description||"")}</textarea></div>
             <div><label>Cliente/Área</label><input id="detail-client-${ticket.id}" ${canEdit?`onchange="autoSaveTicketDetail('${ticket.id}')"`:""} value="${htmlEscape(ticket.client||"")}" ${canEdit?"":"disabled"}></div>
-            <div><label>Informador</label><input id="detail-informer-${ticket.id}" ${canEdit?`onchange="autoSaveTicketDetail('${ticket.id}')"`:""} value="${htmlEscape(ticket.informer||ticket.createdBy||"")}" ${canEdit?"":"disabled"}></div>
+            <div><label>Informador</label><select id="detail-informer-${ticket.id}" ${canEdit?`onchange="autoSaveTicketDetail('${ticket.id}')"`:""} ${canEdit?"":"disabled"}>${informerOptions}</select></div>
 
             ${currentRole === "consultor" ? `<div class="inline" style="margin-top:6px"><button class="urgentBtn" onclick="toggleUrgent('${ticket.id}')">${ticket.urgentRequested ? "Quitar urgente" : "🚨 Marcar urgente"}</button><input id="requestedDeadline-${ticket.id}" type="date" value="${htmlEscape(ticket.requestedDeadline||"")}" style="margin:0;max-width:180px" onfocus="this.showPicker && this.showPicker()" onkeydown="return false" /><button class="ghost" onclick="requestDeadlineChange('${ticket.id}')">Solicitar cambiar deadline</button></div>${ticket.deadlineChangeStatus === "pending" ? `<div class="small">Cambio solicitado para: ${htmlEscape(ticket.requestedDeadline||"-")}</div>` : ""}` : `${ticket.deadlineChangeStatus === "pending" ? `<div class="small">Solicitud de cambio de deadline: ${htmlEscape(ticket.requestedDeadline||"-")}<div class="inline" style="margin-top:6px"><button class="ghost" onclick="applyDeadlineDecision('${ticket.id}', true)">Aprobar deadline</button><button class="danger" onclick="applyDeadlineDecision('${ticket.id}', false)">Rechazar</button></div></div>` : ""}` }
 
-            ${renderComments(id, ticket.comments || {})}
-            ${currentRole === "admin" ? `<div style="margin-top:10px"><h4 style="margin:0 0 8px">Historial del ticket</h4><div id="ticketHistory-${ticket.id}" class="small">Cargando...</div></div>` : ""}
+            ${renderComments(id, ticket.comments || {}, usersByEmail)}
           </div>
           ${canEdit ? `<div class="detailSidebar"><div><label>Estado</label><select id="detail-status-${ticket.id}" onchange="autoSaveTicketDetail('${ticket.id}')">${statusOptions}</select></div><div><label>OWNER DE LA TAREA</label><select id="detail-owner-${ticket.id}" onchange="autoSaveTicketDetail('${ticket.id}')"><option value="">Sin asignar</option>${analystOptions}</select><div class="inline"><button class="ghost" onclick="assignTicketToMe('${ticket.id}')">Asignar a mí</button></div></div></div>` : ''}
         </div>
       `
       document.getElementById("ticketDetailModal").classList.remove("hidden")
-      if(currentRole === "admin") loadTicketHistory(id)
+      setTicketActivityTab(id, ticketActivityTabById[id] || "comments")
     }
 
 
 
     async function loadTicketHistory(ticketId){
-      const el = document.getElementById(`ticketHistory-${ticketId}`)
+      const el = document.getElementById(`ticket-history-tab-${ticketId}`)
       if(!el) return
       const logs = Object.values((await db.ref("activity_logs").once("value")).val() || {})
         .filter(l => l.ticketId === ticketId)
@@ -791,37 +820,6 @@
         priority: (document.getElementById(`detail-priority-${id}`)?.value || ticket.priority),
         client: (document.getElementById(`detail-client-${id}`)?.value || "").trim() || ticket.client,
         informer: (document.getElementById(`detail-informer-${id}`)?.value || ticket.informer || ticket.createdBy).trim().toLowerCase(),
-        assignedTo: (document.getElementById(`detail-owner-${id}`)?.value || "").trim().toLowerCase(),
-        deadline: (document.getElementById(`detail-deadline-${id}`)?.value || "").trim(),
-        status: (document.getElementById(`detail-status-${id}`)?.value || ticket.status),
-        updatedAt: new Date().toISOString(),
-        updatedBy: currentUser.email
-      }
-      await db.ref("tickets").child(ticket.dbKey || emailKey(ticket.id)).update(updated)
-      mirrorToSheet("updateTicket", { id, ...updated })
-      const ix = cachedTickets.findIndex(t => t.id === id)
-      if(ix >= 0) cachedTickets[ix] = updated
-      renderTicketsFromData(cachedTickets)
-      await loadDashboard()
-      showToast("Ticket actualizado", "ok")
-    }
-
-
-    async function assignTicketToMe(id){
-      const owner = document.getElementById(`detail-owner-${id}`)
-      if(owner){ owner.value = (currentUser.email||"").toLowerCase(); autoSaveTicketDetail(id) }
-    }
-
-    async function autoSaveTicketDetail(id){
-      if(!(currentRole === "admin" || currentRole === "analista")) return
-      const ticket = cachedTickets.find(t => t.id === id)
-      if(!ticket) return
-      const updated = {
-        ...ticket,
-        title: (document.getElementById(`detail-title-${id}`)?.value || "").trim() || ticket.title,
-        description: (document.getElementById(`detail-description-${id}`)?.value || "").trim() || ticket.description,
-        priority: (document.getElementById(`detail-priority-${id}`)?.value || ticket.priority),
-        client: (document.getElementById(`detail-client-${id}`)?.value || "").trim() || ticket.client,
         assignedTo: (document.getElementById(`detail-owner-${id}`)?.value || "").trim().toLowerCase(),
         deadline: (document.getElementById(`detail-deadline-${id}`)?.value || "").trim(),
         status: (document.getElementById(`detail-status-${id}`)?.value || ticket.status),
@@ -870,17 +868,53 @@
       `
     }
 
-    function renderComments(id, comments){
-      const list = Object.entries(comments || {}).map(([cid,c]) => ({ id: cid, ...(c||{}) })).filter(c => currentRole !== "consultor" || !c.internal).sort((a,b)=>new Date(a.createdAt||0)-new Date(b.createdAt||0))
+    function toggleCommentsSort(ticketId){
+      const current = commentSortOrderByTicket[ticketId] || "asc"
+      commentSortOrderByTicket[ticketId] = current === "asc" ? "desc" : "asc"
+      openTicketDetailModal(ticketId)
+    }
+
+    function setTicketActivityTab(ticketId, tab){
+      ticketActivityTabById[ticketId] = tab
+      const commentsEl = document.getElementById(`ticket-comments-tab-${ticketId}`)
+      const historyEl = document.getElementById(`ticket-history-tab-${ticketId}`)
+      const commentsBtn = document.getElementById(`activity-btn-comments-${ticketId}`)
+      const historyBtn = document.getElementById(`activity-btn-history-${ticketId}`)
+      if(commentsEl) commentsEl.classList.toggle("hidden", tab !== "comments")
+      if(historyEl) historyEl.classList.toggle("hidden", tab !== "history")
+      if(commentsBtn) commentsBtn.classList.toggle("active", tab === "comments")
+      if(historyBtn) historyBtn.classList.toggle("active", tab === "history")
+      if(tab === "history") loadTicketHistory(ticketId)
+    }
+
+    function renderComments(id, comments, usersByEmail){
+      const sortOrder = commentSortOrderByTicket[id] || "asc"
+      const list = Object.entries(comments || {}).map(([cid,c]) => ({ id: cid, ...(c||{}) })).filter(c => currentRole !== "consultor" || !c.internal).sort((a,b)=> sortOrder === "asc" ? new Date(a.createdAt||0)-new Date(b.createdAt||0) : new Date(b.createdAt||0)-new Date(a.createdAt||0))
       return `
         <div class="commentsSection">
-          <div class="small" style="margin-bottom:6px">Comentarios ${currentRole === "consultor" ? "" : "(incluye internos)"}</div>
-          ${list.length ? list.map(c=>`<div class="commentItem"><div class="commentHead"><div><strong>${htmlEscape(commentDisplayName(c.author||"-"))}</strong><span class="small" style="margin-left:8px">${formatAgo(c.createdAt)}</span></div></div><div>${htmlEscape(c.message||"")}</div>${c.attachment?.url ? `<div class="small" style="margin-top:6px"><a href="${htmlEscape(c.attachment.url)}" target="_blank">📎 ${htmlEscape(c.attachment.name||"Archivo")}</a></div>`:""}<div class="commentActions" style="margin-top:6px"><button class="ghost" style="padding:4px 8px" onclick="reactToComment('${id}','${c.id||""}','👍')">👍 ${Object.keys((c.reactions||{}).thumbsUp||{}).length}</button><button class="ghost" style="padding:4px 8px" onclick="deleteComment('${id}','${c.id||""}')">🗑️</button><button class="ghost" style="padding:4px 8px" onclick="reactToComment('${id}','${c.id||""}','❤️')">❤️ ${Object.keys((c.reactions||{}).heart||{}).length}</button><button class="ghost" style="padding:4px 8px" onclick="reactToComment('${id}','${c.id||""}','👀')">👀 ${Object.keys((c.reactions||{}).eyes||{}).length}</button></div></div>`).join("") : `<div class="small">Sin comentarios</div>`}
-          <div class="inline" style="margin-top:6px">
-            <input id="comment-${id}" placeholder="Escribí un comentario" style="margin:0" />
-            <input id="comment-file-${id}" type="file" style="margin:0;max-width:220px" />${currentRole !== "consultor" ? `<label style="margin:0 0 0 8px"><input type="checkbox" id="comment-internal-${id}" style="width:auto;margin:0 6px 0 0"/> Interno</label>` : ""}
-            <button class="ghost" onclick="addComment('${id}')">Comentar</button>
+          <div class="commentsHeader">
+            <div class="commentsTitle">Comentarios</div>
+            <button class="ghost sortBtn" onclick="toggleCommentsSort('${id}')">${sortOrder === "asc" ? "Más antiguos primero" : "Más recientes primero"}</button>
           </div>
+          <div class="activityTabs">
+            <button id="activity-btn-comments-${id}" class="activityTab ${(ticketActivityTabById[id] || "comments") === "comments" ? "active" : ""}" onclick="setTicketActivityTab('${id}','comments')">Comentarios</button>
+            <button id="activity-btn-history-${id}" class="activityTab ${(ticketActivityTabById[id] || "comments") === "history" ? "active" : ""}" onclick="setTicketActivityTab('${id}','history')">Historial</button>
+          </div>
+
+          <div id="ticket-comments-tab-${id}" class="${(ticketActivityTabById[id] || "comments") === "comments" ? "" : "hidden"}">
+            ${list.length ? list.map(c=>`<div class="commentItem"><div class="commentHead"><div class="commentHeadLeft">${(usersByEmail[String(c.author||"" ).toLowerCase()]?.photoUrl) ? `<img class="commentAvatar" src="${htmlEscape(usersByEmail[String(c.author||"").toLowerCase()].photoUrl)}" alt="avatar">` : ""}<div><strong>${htmlEscape(commentDisplayName(c.author||"-"))}</strong><span class="small" style="margin-left:8px">${formatAgo(c.createdAt)}</span></div></div></div><div class="commentBody">${htmlEscape(c.message||"")}</div>${c.attachment?.url ? `<div class="small" style="margin-top:6px"><a href="${htmlEscape(c.attachment.url)}" target="_blank">📎 ${htmlEscape(c.attachment.name||"Archivo")}</a></div>`:""}<div class="commentFooter"><div class="commentActions"><button class="ghost" style="padding:4px 8px" onclick="reactToComment('${id}','${c.id||""}','👍')">👍 ${Object.keys((c.reactions||{}).thumbsUp||{}).length}</button><button class="ghost" style="padding:4px 8px" onclick="reactToComment('${id}','${c.id||""}','❤️')">❤️ ${Object.keys((c.reactions||{}).heart||{}).length}</button><button class="ghost" style="padding:4px 8px" onclick="reactToComment('${id}','${c.id||""}','👀')">👀 ${Object.keys((c.reactions||{}).eyes||{}).length}</button></div><button class="commentDeleteText" onclick="deleteComment('${id}','${c.id||""}')">Eliminar</button></div></div>`).join("") : `<div class="small">Sin comentarios</div>`}
+
+            <div class="commentComposer">
+              <div class="inline" style="align-items:flex-start">
+                <input id="comment-${id}" placeholder="Escribí un comentario" style="margin:0;flex:1" />
+                <input id="comment-file-${id}" type="file" style="margin:0;max-width:220px" />
+                <button class="ghost" onclick="addComment('${id}')">Comentar</button>
+              </div>
+              ${currentRole !== "consultor" ? `<div class="switchWrap" style="margin-top:8px"><label class="switch"><input type="checkbox" id="comment-internal-${id}"><span class="slider"></span></label><span>Comentario interno</span></div>` : ""}
+            </div>
+          </div>
+
+          <div id="ticket-history-tab-${id}" class="small ${(ticketActivityTabById[id] || "comments") === "history" ? "" : "hidden"}">Cargando...</div>
         </div>
       `
     }
@@ -1091,14 +1125,32 @@
       const email = document.getElementById("uEmail").value.trim().toLowerCase()
       const password = document.getElementById("uPassword").value.trim()
       const role = document.getElementById("uRole").value
+      const photoFile = document.getElementById("uPhoto")?.files?.[0] || null
       if(!email || !password) return alert("Completá email y contraseña")
 
-      await adminWrite("upsertUser", {
+      let photoUrl = ""
+      let photoFileId = ""
+      if(photoFile){
+        const uploaded = await uploadAttachmentFile(photoFile)
+        photoUrl = uploaded.url || ""
+        photoFileId = uploaded.fileId || ""
+      }
+
+      const payload = {
         key: emailKey(email),
         email, password, role, active: true,
-        createdAt: new Date().toISOString(), createdBy: currentUser.email
-      })
+        createdAt: new Date().toISOString(), createdBy: currentUser.email,
+        photoUrl,
+        photoFileId
+      }
+      await adminWrite("upsertUser", payload)
+      await db.ref("users_by_email").child(emailKey(email)).set(payload)
       alert("Usuario creado correctamente")
+      document.getElementById("uEmail").value = ""
+      document.getElementById("uPassword").value = ""
+      document.getElementById("uPhoto").value = ""
+      await loadUsersAdmin()
+      await loadFilterOptions()
     }
 
     async function loadUsersAdmin(){
@@ -1109,14 +1161,41 @@
       container.innerHTML = users.map(u => {
         const key = emailKey(u.email)
         const isSelf = (u.email||"").toLowerCase() === (currentUser.email||"").toLowerCase()
-        return `<div class="card" style="padding:10px;margin:6px 0"><div class="inline" style="justify-content:space-between"><div><strong>${htmlEscape(u.email||"-")}</strong><br><span class="small">Rol: ${htmlEscape(u.role||"-")} · Clave: Oculta</span></div><div class="inline"><button class="danger" ${isSelf?"disabled":""} onclick="deleteUserAccess('${key}','${u.email||''}')">Eliminar</button></div></div></div>`
+        return `<div class="card" style="padding:10px;margin:6px 0"><div class="inline" style="justify-content:space-between"><div class="inline" style="gap:10px"><img class="commentAvatar" src="${htmlEscape(u.photoUrl||'https://ui-avatars.com/api/?background=334155&color=fff&name='+encodeURIComponent(u.email||'U'))}" alt="avatar"><div><strong>${htmlEscape(u.email||"-")}</strong><br><span class="small">Rol: ${htmlEscape(u.role||"-")} · Clave: Oculta</span></div></div><div class="inline"><input id="user-photo-${key}" type="file" accept="image/*" style="max-width:200px;margin:0"><button class="ghost" onclick="updateUserPhoto('${key}','${u.email||''}','${u.role||'consultor'}')">Actualizar foto</button><button class="danger" ${isSelf?"disabled":""} onclick="deleteUserAccess('${key}','${u.email||''}')">Eliminar</button></div></div></div>`
       }).join("")
+    }
+
+    async function updateUserPhoto(key,email,role){
+      if(currentRole !== "admin") return
+      const file = document.getElementById(`user-photo-${key}`)?.files?.[0]
+      if(!file) return alert("Seleccioná una foto")
+      const uploaded = await uploadAttachmentFile(file)
+      const users = await fetchUsersFromSheet()
+      const existing = users.find(u => emailKey(u.email) === key) || {}
+      const payload = {
+        key,
+        email,
+        password: existing.password || "",
+        role,
+        active: existing.active !== false,
+        createdAt: existing.createdAt || new Date().toISOString(),
+        createdBy: existing.createdBy || currentUser.email,
+        lastAccessAt: existing.lastAccessAt || "",
+        photoUrl: uploaded.url || "",
+        photoFileId: uploaded.fileId || ""
+      }
+      await adminWrite("upsertUser", payload)
+      await db.ref("users_by_email").child(key).update(payload)
+      showToast("Foto actualizada", "ok")
+      await loadUsersAdmin()
     }
 
     async function deleteUserAccess(key,email){
       if(currentRole !== "admin") return alert("Solo admin puede eliminar usuarios")
       if(!confirm(`¿Eliminar acceso para ${email}?`)) return
       await db.ref("users_by_email").child(key).remove()
+      await adminWrite("deleteUser", { key })
+      await loadUsersAdmin()
       await loadFilterOptions()
     }
 

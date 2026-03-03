@@ -31,7 +31,7 @@ function doPost(e) {
 
     if (!action) return jsonOutput({ ok: false, error: 'Falta action' });
 
-    const adminActions = new Set(['upsertClient','deleteClient']);
+    const adminActions = new Set(['upsertClient','deleteClient','upsertUser','deleteUser']);
     const ticketActions = new Set(['createTicket','updateTicket','deleteTicket']);
 
     if (action === 'uploadDriveFile') {
@@ -59,12 +59,6 @@ function doPost(e) {
       return jsonOutput({ ok: true, action, deleted: row > 1 });
     }
 
-
-    if (action === 'upsertUser' || action === 'deleteUser') {
-      // Compatibilidad hacia atrás: esta versión no persiste usuarios en Sheets.
-      return jsonOutput({ ok: true, action, ignored: true });
-    }
-
     if (adminActions.has(action)) {
       const sheet = getSheetByName_(body.adminSheet || ADMIN_SHEET_NAME);
       if (!sheet) return jsonOutput({ ok: false, error: `No existe hoja ${ADMIN_SHEET_NAME}` });
@@ -74,6 +68,26 @@ function doPost(e) {
         upsertAdminRow_(sheet, 'client', payload.key, {
           name: payload.name, createdAt: payload.createdAt, createdBy: payload.createdBy
         });
+        return jsonOutput({ ok: true, action });
+      }
+
+      if (action === 'upsertUser') {
+        upsertAdminRow_(sheet, 'user', payload.key, {
+          name: payload.email,
+          password: payload.password,
+          role: payload.role,
+          active: payload.active,
+          createdAt: payload.createdAt,
+          createdBy: payload.createdBy,
+          lastAccessAt: payload.lastAccessAt,
+          photoUrl: payload.photoUrl,
+          photoFileId: payload.photoFileId
+        });
+        return jsonOutput({ ok: true, action });
+      }
+
+      if (action === 'deleteUser') {
+        deleteAdminRow_(sheet, 'user', payload.key);
         return jsonOutput({ ok: true, action });
       }
 
@@ -152,7 +166,7 @@ function ensureTicketHeader_(sheet) {
 }
 
 function ensureAdminHeader_(sheet) {
-  const expected = ['type','key','name','createdAt','createdBy','updatedAt'];
+  const expected = ['type','key','name','password','role','active','createdAt','createdBy','lastAccessAt','photoUrl','photoFileId','updatedAt'];
   const firstRow = sheet.getRange(1, 1, 1, expected.length).getValues()[0];
   const hasHeader = firstRow.some(v => String(v || '').trim() !== '');
   if (!hasHeader) {
@@ -241,17 +255,24 @@ function findAdminRow_(sheet, type, key) {
 }
 
 function upsertAdminRow_(sheet, type, key, data) {
+  const active = data.active === false || String(data.active || '').toLowerCase() === 'false' ? 'false' : 'true';
   const row = [
     type,
     String(key || ''),
     String(data.name || ''),
+    String(data.password || ''),
+    String(data.role || ''),
+    active,
     String(data.createdAt || ''),
     String(data.createdBy || ''),
+    String(data.lastAccessAt || ''),
+    String(data.photoUrl || ''),
+    String(data.photoFileId || ''),
     new Date().toISOString()
   ];
   const existing = findAdminRow_(sheet, type, key);
   if (existing > 1) {
-    sheet.getRange(existing, 1, 1, 6).setValues([row]);
+    sheet.getRange(existing, 1, 1, 12).setValues([row]);
   } else {
     sheet.appendRow(row);
   }
