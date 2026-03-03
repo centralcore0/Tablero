@@ -945,10 +945,10 @@ Cliente B`)
       return `
         <div class="ticket ${priorityClass(ticket.priority)}" ${canDrag ? `draggable="true" ondragstart="onTicketDragStart(event,'${ticket.id}')" ondragend="onTicketDragEnd(event)"` : ""}>
           <h5><span class="ticketCode">${htmlEscape(ticket.id||"-")}</span>${htmlEscape(ticket.title||"-")}</h5>
-          <div class="meta">Cliente/Área: ${htmlEscape(ticket.client||"-")}</div>
+          <div class="meta">${htmlEscape(ticket.client||"-")}</div>
           <div class="meta">Informador: ${htmlEscape(ticket.informer||ticket.createdBy||"-")}</div>
-          <div class="assignedAvatarRow">${assignedAvatar ? `<img class="assignedAvatar" src="${htmlEscape(assignedAvatar)}" alt="avatar" data-fallback="${htmlEscape(buildInitialAvatar(assignedTo||'A'))}" onerror="handleAvatarError(this)">` : ""}<div class="meta">Asignado a: ${htmlEscape(ticket.assignedTo||"Sin asignar")}</div></div>
-          <div class="meta deadline">Deadline: ${ticket.deadline ? htmlEscape(ticket.deadline) : "Sin fecha"}</div>
+          <div class="assignedAvatarRow">${assignedAvatar ? `<img class="assignedAvatar" src="${htmlEscape(assignedAvatar)}" alt="avatar" data-fallback="${htmlEscape(buildInitialAvatar(assignedTo||'A'))}" onerror="handleAvatarError(this)">` : ""}<div class="meta">${htmlEscape(ticket.assignedTo||"Sin asignar")}</div></div>
+          <div class="meta deadline">Deadline: ${ticket.deadline ? formatDateDMY(ticket.deadline) : "Sin fecha"}</div>
           ${ticket.urgentRequested?`<div class="urgentFlag">Marcado como urgente</div>`:""}
           <div class="inline" style="margin-top:8px"><button class="ghost" onclick="openTicketDetailModal('${ticket.id}')">Ver detalle</button>${currentRole === "admin" ? `<button class="danger" onclick="deleteTicket('${ticket.id}')">Eliminar</button>` : ""}</div>
         </div>
@@ -982,11 +982,8 @@ Cliente B`)
       }
 
       document.getElementById("ticketDetailContent").innerHTML = `
-        <div class="inline" style="justify-content:flex-start;align-items:center;gap:10px">
-          <div class="codeBadge">${htmlEscape(ticket.id||"-")}</div>
-          ${(currentRole === "admin" || currentRole === "analista") && ticket.urgentRequested ? `<span class="urgentTopFlag">🚨 URGENTE</span>` : ''}
-        </div>
-        <div class="detailLayout ${canManageStatus ? "withSidebar" : ""}">
+        ${(currentRole === "admin" || currentRole === "analista") && ticket.urgentRequested ? `<div class="inline" style="margin-bottom:8px"><span class="urgentTopFlag">🚨 URGENTE</span></div>` : ''}
+        <div class="detailLayout">
           <div>
             <div class="row">
               <div><label>Título</label><input id="detail-title-${ticket.id}" ${canEdit?`onchange="autoSaveTicketDetail('${ticket.id}')"`:""} value="${htmlEscape(ticket.title||"")}" ${canEdit?"":"disabled"}></div>
@@ -1001,7 +998,6 @@ Cliente B`)
 
             ${renderComments(id, ticket.comments || {}, usersByEmail)}
           </div>
-          ${canManageStatus ? `<div class="detailSidebar"><div><label>OWNER DE LA TAREA</label><select id="detail-owner-${ticket.id}" onchange="autoSaveTicketDetail('${ticket.id}')"><option value="">Sin asignar</option>${analystOptions}</select><div class="inline"><button class="ghost" onclick="assignTicketToMe('${ticket.id}')">Asignar a mí</button></div></div></div>` : ''}
         </div>
       `
       document.getElementById("ticketDetailModal").classList.remove("hidden")
@@ -1050,7 +1046,7 @@ Cliente B`)
         priority: canEditFields ? (document.getElementById(`detail-priority-${id}`)?.value || ticket.priority) : ticket.priority,
         client: canEditFields ? ((document.getElementById(`detail-client-${id}`)?.value || "").trim() || ticket.client) : ticket.client,
         informer: canEditFields ? ((document.getElementById(`detail-informer-${id}`)?.value || ticket.informer || ticket.createdBy).trim().toLowerCase()) : (ticket.informer || ticket.createdBy),
-        assignedTo: (document.getElementById(`detail-owner-${id}`)?.value || "").trim().toLowerCase(),
+        assignedTo: (document.getElementById(`detail-owner-${id}`)?.value || ticket.assignedTo || "").trim().toLowerCase(),
         deadline: canEditFields ? ((document.getElementById(`detail-deadline-${id}`)?.value || "").trim()) : ticket.deadline,
         status: (document.getElementById(`detail-status-${id}`)?.value || ticket.status),
         updatedAt: new Date().toISOString(),
@@ -1127,18 +1123,37 @@ Cliente B`)
       const ticket = cachedTickets.find(t => t.id === ticketId)
       if(!ticket) return '<div class="small">Sin datos de tiempo</div>'
       const tracking = ticket.timeTracking || { users:{}, consolidatedMinutes:0 }
-      const helpers = Array.from(new Set([...(ticket.helpers||[]), ...(ticket.assignedTo ? [ticket.assignedTo] : [])]))
+      const helpers = Array.from(new Set([...(ticket.helpers||[]), ...(ticket.assignedTo ? [ticket.assignedTo] : [])])).filter(Boolean)
       const analysts = Object.values(usersByEmail||{}).filter(u => u && u.role === 'analista' && u.active !== false).map(u => (u.email||'').toLowerCase()).sort()
       const options = `<option value="">Seleccionar analista</option>${analysts.map(a => `<option value="${htmlEscape(a)}">${htmlEscape(a)}</option>`).join('')}`
-      const userRows = Object.entries(tracking.users || {})
+
+      const rows = {}
+      Object.entries(tracking.users || {}).forEach(([k,v])=>{ rows[k] = { ...(v||{}) } })
+      helpers.forEach(email => {
+        const k = emailKey(email)
+        if(!rows[k]) rows[k] = { email, totalMinutes:0, timerStartAt:'' }
+      })
+      if(ticket.assignedTo){
+        const ownerKey = emailKey(ticket.assignedTo)
+        if(!rows[ownerKey]) rows[ownerKey] = { email: ticket.assignedTo, totalMinutes:0, timerStartAt:'' }
+      }
+
+      const userRows = Object.entries(rows)
       const helpersHtml = userRows.length ? userRows.map(([uk, u]) => {
         const email = String(u?.email || '')
         const mine = emailKey(email) === emailKey(currentUser.email)
         const running = !!u?.timerStartAt
-        return `<div class="feedItem"><div class="inline" style="justify-content:space-between"><div><strong>${htmlEscape(email||'-')}</strong><div class="small">Total: ${fmtMinutes(u?.totalMinutes||0)}</div><div id="timer-live-${ticketId}-${uk}" class="timerLive">${running ? 'Timer corriendo...' : 'Timer detenido'}</div></div>${mine ? `<div class="inline"><input id="manual-hours-${ticketId}-${uk}" type="number" min="0" placeholder="hs" style="margin:0;max-width:70px"><input id="manual-mins-${ticketId}-${uk}" type="number" min="0" placeholder="min" style="margin:0;max-width:70px"><button class="ghost" onclick="logManualTimeForUser('${ticketId}','${uk}')">Cargar</button><button id="timer-toggle-${ticketId}-${uk}" class="ghost" onclick="toggleTicketTimerForUser('${ticketId}','${uk}')">Iniciar timer</button></div>` : ''}</div></div>`
+        return `<div class="feedItem"><div class="inline" style="justify-content:space-between;align-items:center;gap:8px"><div><strong>${htmlEscape(email||'-')}</strong><div class="small">Total: ${fmtMinutes(u?.totalMinutes||0)}</div></div><div class="inline" style="gap:6px;align-items:center">${mine ? `<input id="manual-hours-${ticketId}-${uk}" type="number" min="0" placeholder="hs" style="margin:0;max-width:70px"><input id="manual-mins-${ticketId}-${uk}" type="number" min="0" placeholder="min" style="margin:0;max-width:70px"><button class="ghost" onclick="logManualTimeForUser('${ticketId}','${uk}')">Cargar</button><button id="timer-toggle-${ticketId}-${uk}" class="ghost" onclick="toggleTicketTimerForUser('${ticketId}','${uk}')">${running ? '🕒 Parar timer' : '🕒 Iniciar timer'}</button><span id="timer-live-${ticketId}-${uk}" class="timerLive">🕒 ${running ? '00:00:00' : '00:00:00'}</span>` : `<span id="timer-live-${ticketId}-${uk}" class="timerLive">🕒 ${running ? '00:00:00' : '00:00:00'}</span>`}</div></div></div>`
       }).join('') : '<div class="small">Todavía no hay tiempos cargados.</div>'
-      return `<div><div class="inline" style="margin-bottom:8px"><button class="ghost" onclick="joinAsHelper('${ticketId}')">SUMARME COMO AYUDANTE</button><select id="helper-analyst-${ticketId}" style="margin:0;max-width:260px">${options}</select><button class="ghost" onclick="assignHelperFromDropdown('${ticketId}')">asignarme</button></div><div class="small" style="margin-bottom:8px">Ayudantes: ${htmlEscape(helpers.join(', ') || 'Ninguno')}</div>${helpersHtml}</div>`
+
+      return `<div>
+        ${(currentRole === 'admin' || currentRole === 'analista') ? `<div class="inline" style="margin-bottom:8px;align-items:center;gap:8px"><label style="margin:0" class="small">OWNER DE LA TAREA</label><select id="detail-owner-${ticketId}" onchange="autoSaveTicketDetail('${ticketId}')" style="margin:0;min-width:240px"><option value="">Sin asignar</option>${analysts.map(a => `<option value="${htmlEscape(a)}" ${String(ticket.assignedTo||'').toLowerCase()===a?'selected':''}>${htmlEscape(a)}</option>`).join('')}</select><button class="ghost" onclick="assignTicketToMe('${ticketId}')">Asignar</button></div>` : ''}
+        <div class="inline" style="margin-bottom:8px;gap:8px;align-items:center"><select id="helper-analyst-${ticketId}" style="margin:0;max-width:260px">${options}</select><button class="ghost" onclick="assignHelperFromDropdown('${ticketId}')">Asignar</button><button class="ghost" onclick="joinAsHelper('${ticketId}')">Sumarme como ayudante</button><button class="ghost" onclick="joinAsAnalyst('${ticketId}')">Sumarme como analista</button></div>
+        <div class="small" style="margin-bottom:8px">Ayudantes: ${htmlEscape(helpers.join(', ') || 'Ninguno')}</div>
+        ${helpersHtml}
+      </div>`
     }
+
 
     function renderComments(id, comments, usersByEmail){
       const sortOrder = commentSortOrderByTicket[id] || "asc"
@@ -1150,7 +1165,7 @@ Cliente B`)
             <button class="ghost sortBtn" onclick="toggleCommentsSort('${id}')">${sortOrder === "asc" ? "Más antiguos primero" : "Más recientes primero"}</button>
           </div>
           <div class="activityTabs">
-            <button id="activity-btn-comments-${id}" class="activityTab ${(ticketActivityTabById[id] || "comments") === "comments" ? "active" : ""}" onclick="setTicketActivityTab('${id}','comments')">Información interna del ticket</button>
+            <button id="activity-btn-comments-${id}" class="activityTab ${(ticketActivityTabById[id] || "comments") === "comments" ? "active" : ""}" onclick="setTicketActivityTab('${id}','comments')">Comentarios</button>
             <button id="activity-btn-history-${id}" class="activityTab ${(ticketActivityTabById[id] || "comments") === "history" ? "active" : ""}" onclick="setTicketActivityTab('${id}','history')">Historial</button>
             <button id="activity-btn-times-${id}" class="activityTab ${(ticketActivityTabById[id] || "comments") === "times" ? "active" : ""}" onclick="setTicketActivityTab('${id}','times')">Tiempos</button>
           </div>
@@ -1241,14 +1256,14 @@ Cliente B`)
         const btn = document.getElementById(`timer-toggle-${ticketId}-${uk}`)
         if(!liveEl) return
         const running = !!userTrack?.timerStartAt
-        if(btn) btn.textContent = running ? 'Parar timer' : 'Iniciar timer'
+        if(btn) btn.textContent = running ? '🕒 Parar timer' : '🕒 Iniciar timer'
         if(running){
           const elapsed = Math.max(0, Math.floor((Date.now() - new Date(userTrack.timerStartAt).getTime())/1000))
           const hh = String(Math.floor(elapsed/3600)).padStart(2,'0')
           const mm = String(Math.floor((elapsed%3600)/60)).padStart(2,'0')
           const ss = String(elapsed%60).padStart(2,'0')
-          liveEl.textContent = `Timer corriendo: ${hh}:${mm}:${ss}`
-        }else liveEl.textContent = 'Timer detenido'
+          liveEl.textContent = `🕒 ${hh}:${mm}:${ss}`
+        }else liveEl.textContent = '🕒 00:00:00'
       })
     }
 
@@ -1267,6 +1282,11 @@ Cliente B`)
       const email = (document.getElementById(`helper-analyst-${ticketId}`)?.value || '').trim().toLowerCase()
       if(!email) return alert('Seleccioná un analista')
       await addHelperToTicket(ticketId, email)
+    }
+
+    async function joinAsAnalyst(ticketId){
+      if(currentRole !== 'analista' && currentRole !== 'admin') return alert('Solo analista o admin')
+      await addHelperToTicket(ticketId, (currentUser?.email||'').toLowerCase())
     }
 
     async function addHelperToTicket(id, helperEmail){
@@ -1714,9 +1734,8 @@ Cliente B`)
       if(!ticket) return alert("No se encontró el ticket")
       if(currentRole !== "analista") return alert("Solo analista puede solicitar cambio de deadline desde actividad")
       const currentValue = ticket.deadline || toLocalDateOnly(new Date())
-      const requestedDeadline = (prompt("¿Cuál sería la nueva fecha? (YYYY-MM-DD)", currentValue) || "").trim()
+      const requestedDeadline = await pickDateFromCalendar(currentValue)
       if(!requestedDeadline) return
-      if(!/^\d{4}-\d{2}-\d{2}$/.test(requestedDeadline)) return alert("Formato inválido. Usá YYYY-MM-DD")
       const comments = { ...(ticket.comments || {}) }
       const autoMessage = `Solicitud automática: ${currentUser.email} solicita cambio de deadline a ${requestedDeadline} para revisión del consultor.`
       comments[generateId()] = { message: autoMessage, author: currentUser.email, createdAt: new Date().toISOString(), internal: false, maximumAttention: true }
@@ -1739,6 +1758,37 @@ Cliente B`)
       await logActivity("ticket_comentario", { ticketId, source: "deadline_request_auto_comment" })
       await loadDashboard()
       showToast("Solicitud enviada al consultor", "ok")
+    }
+
+    function formatDateDMY(value){
+      if(!value) return "-"
+      const d = new Date(`${value}T00:00:00`)
+      if(Number.isNaN(d.getTime())) return htmlEscape(String(value))
+      const dd = String(d.getDate()).padStart(2,'0')
+      const mm = String(d.getMonth()+1).padStart(2,'0')
+      const yy = d.getFullYear()
+      return `${dd}/${mm}/${yy}`
+    }
+
+    async function pickDateFromCalendar(defaultValue){
+      return await new Promise((resolve)=>{
+        const input = document.createElement('input')
+        input.type = 'date'
+        input.value = defaultValue || ''
+        input.style.position = 'fixed'
+        input.style.left = '-9999px'
+        input.style.opacity = '0'
+        document.body.appendChild(input)
+        const done = () => {
+          const val = (input.value || '').trim()
+          input.remove()
+          resolve(val || null)
+        }
+        input.addEventListener('change', done, { once:true })
+        input.addEventListener('blur', ()=>setTimeout(done,150), { once:true })
+        if(input.showPicker) input.showPicker(); else input.click()
+        input.focus()
+      })
     }
 
     async function loadDashboard(){
