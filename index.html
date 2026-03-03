@@ -806,6 +806,37 @@
       showToast("Ticket actualizado", "ok")
     }
 
+
+    async function assignTicketToMe(id){
+      const owner = document.getElementById(`detail-owner-${id}`)
+      if(owner){ owner.value = (currentUser.email||"").toLowerCase(); autoSaveTicketDetail(id) }
+    }
+
+    async function autoSaveTicketDetail(id){
+      if(!(currentRole === "admin" || currentRole === "analista")) return
+      const ticket = cachedTickets.find(t => t.id === id)
+      if(!ticket) return
+      const updated = {
+        ...ticket,
+        title: (document.getElementById(`detail-title-${id}`)?.value || "").trim() || ticket.title,
+        description: (document.getElementById(`detail-description-${id}`)?.value || "").trim() || ticket.description,
+        priority: (document.getElementById(`detail-priority-${id}`)?.value || ticket.priority),
+        client: (document.getElementById(`detail-client-${id}`)?.value || "").trim() || ticket.client,
+        assignedTo: (document.getElementById(`detail-owner-${id}`)?.value || "").trim().toLowerCase(),
+        deadline: (document.getElementById(`detail-deadline-${id}`)?.value || "").trim(),
+        status: (document.getElementById(`detail-status-${id}`)?.value || ticket.status),
+        updatedAt: new Date().toISOString(),
+        updatedBy: currentUser.email
+      }
+      await db.ref("tickets").child(ticket.dbKey || emailKey(ticket.id)).update(updated)
+      mirrorToSheet("updateTicket", { id, ...updated })
+      const ix = cachedTickets.findIndex(t => t.id === id)
+      if(ix >= 0) cachedTickets[ix] = updated
+      renderTicketsFromData(cachedTickets)
+      await loadDashboard()
+      showToast("Ticket actualizado", "ok")
+    }
+
     function renderTicketActions(id, currentStatus){
       const options = Object.entries(STATUS)
         .filter(([key]) => key !== currentStatus)
