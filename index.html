@@ -603,6 +603,8 @@ Cliente B`)
       mirrorToSheet("upsertClient", { key: emailKey(name), name, createdAt: new Date().toISOString(), createdBy: currentUser.email })
       const input = document.getElementById("cName")
       if(input) input.value = ""
+      const fileInput = document.getElementById(`comment-file-${id}`)
+      if(fileInput) fileInput.value = ""
       showToast("Cliente agregado", "ok")
       await loadClientsAdmin()
       await loadFilterOptions()
@@ -1067,7 +1069,7 @@ Cliente B`)
         .join("")
 
       const canDelete = currentRole === "admin"
-      const canMove = currentRole === "admin" || currentRole === "analista"
+      const canMove = currentRole === "admin" || currentRole === "analista" || currentRole === "consultor"
       const canAssign = currentRole === "admin" || currentRole === "analista"
 
       const assignSelect = canAssign ? `
@@ -1480,7 +1482,7 @@ Cliente B`)
     }
 
     async function moveTicket(id){
-      if(!(currentRole === "admin" || currentRole === "analista")) return alert("No tenés permisos para mover tickets")
+      if(!(currentRole === "admin" || currentRole === "analista" || currentRole === "consultor")) return alert("No tenés permisos para mover tickets")
       const next = document.getElementById(`next-${id}`)?.value
       if(!next) return
 
