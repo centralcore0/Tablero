@@ -202,6 +202,8 @@
     var cachedUsersByEmail = {}
     var draggedTicketId = ""
     var ticketTimerIntervals = {}
+    var realtimeStreamsStarted = false
+    var latestActivityLogs = []
 
     const STATUS = {
       unassigned: "Pendientes de asignar",
@@ -559,6 +561,67 @@ Cliente B`)
       globalThis.consultorRefreshTimer = null
     }
 
+    function stopRealtimeStreams(){
+      db.ref("tickets").off()
+      db.ref("users_by_email").off()
+      db.ref("activity_logs").off()
+      db.ref("clients").off()
+      realtimeStreamsStarted = false
+      latestActivityLogs = []
+    }
+
+    function setupRealtimeStreams(){
+      if(!currentUser || realtimeStreamsStarted) return
+      realtimeStreamsStarted = true
+
+      db.ref("tickets").off()
+      db.ref("tickets").on("value", snap => {
+        const data = Object.entries(snap.val() || {}).map(([dbKey,t]) => ({ ...t, id: t?.id || dbKey, dbKey, comments: parseCommentsValue(t?.comments) }))
+        cachedTickets = data
+        const boardContainer = document.getElementById("boardContainer")
+        if(boardContainer) renderTicketsFromData(cachedTickets)
+        loadDashboard()
+      })
+
+      db.ref("users_by_email").off()
+      db.ref("users_by_email").on("value", snap => {
+        cachedUsersByEmail = snap.val() || {}
+        const analystFilterSelect = document.getElementById("filterAnalyst")
+        if(analystFilterSelect){
+          const analysts = Object.values(cachedUsersByEmail).filter(u => u && u.role === "analista" && u.active !== false).map(u => (u.email||"").toLowerCase())
+          analystFilterSelect.innerHTML = `<option value="">Todos los analistas</option>${analysts.map(a => `<option value="${htmlEscape(a)}">${htmlEscape(a)}</option>`).join("")}`
+          analystFilterSelect.value = ticketFilterAnalyst
+        }
+        if(cachedTickets && cachedTickets.length){
+          const boardContainer = document.getElementById("boardContainer")
+          if(boardContainer) renderTicketsFromData(cachedTickets)
+        }
+        loadDashboard()
+      })
+
+      db.ref("activity_logs").off()
+      db.ref("activity_logs").limitToLast(50).on("value", snap => {
+        latestActivityLogs = Object.values(snap.val() || {})
+        loadDashboard()
+      })
+
+      db.ref("clients").off()
+      db.ref("clients").on("value", snap => {
+        const clients = Object.values(snap.val() || {})
+        cachedClients = clients.map(c => String(c.name||"").trim()).filter(Boolean).sort((a,b)=>a.localeCompare(b,'es'))
+        globalThis.cachedClients = cachedClients
+        const clientFilterSelect = document.getElementById("filterClient")
+        if(clientFilterSelect){
+          clientFilterSelect.innerHTML = `<option value="">Todos los clientes</option>${cachedClients.map(c => `<option value="${htmlEscape(c)}">${htmlEscape(c)}</option>`).join("")}`
+          clientFilterSelect.value = ticketFilterClient
+        }
+        const ticketClientSelect = document.getElementById("tClient")
+        if(ticketClientSelect){
+          ticketClientSelect.innerHTML = `<option value="">Seleccionar cliente</option>${cachedClients.map(c => `<option value="${htmlEscape(c)}">${htmlEscape(c)}</option>`).join("")}`
+        }
+      })
+    }
+
     async function loadFilterOptions(){
       const clients = Object.values((await db.ref("clients").once("value")).val() || {})
       cachedClients = clients.map(c => String(c.name||"").trim()).filter(Boolean).sort((a,b)=>a.localeCompare(b,'es'))
@@ -772,7 +835,7 @@ Cliente B`)
       }
     }
 
-    function logout(){ stopConsultorAutoRefresh(); currentUser = null; currentRole = null; renderLogin() }
+    function logout(){ stopConsultorAutoRefresh(); stopRealtimeStreams(); currentUser = null; currentRole = null; renderLogin() }
 
     function renderApp(){
       const isAdmin = currentRole === "admin"
@@ -839,6 +902,7 @@ Cliente B`)
       if(isAdmin && adminPanelTab === 'config'){ loadUsersAdmin(); loadClientsAdmin() }
       if(currentRole === "consultor") startConsultorAutoRefresh(); else stopConsultorAutoRefresh()
       loadFilterOptions()
+      setupRealtimeStreams()
       if(!showAdminPanel || adminPanelTab === 'activity') loadDashboard()
       if(!showAdminPanel) loadTickets()
       if(isAdmin && adminPanelTab === 'config'){ }
@@ -903,16 +967,13 @@ Cliente B`)
     }
 
     async function loadTickets(){
+      setupRealtimeStreams()
       const container = document.getElementById("boardContainer")
       if(!container) return
-
-      db.ref("tickets").off()
-      db.ref("tickets").on("value", snap => {
-        const data = Object.entries(snap.val() || {}).map(([dbKey,t]) => ({ ...t, id: t?.id || dbKey, dbKey, comments: parseCommentsValue(t?.comments) }))
-        cachedTickets = data
-        renderTicketsFromData(data)
-      })
+      renderTicketsFromData(cachedTickets || [])
     }
+
+
 
     function renderTicketsFromData(data){
       const container = document.getElementById("boardContainer")
@@ -1850,16 +1911,21 @@ Cliente B`)
 
     async function loadDashboard(){
       try{
-        let ticketsArr = []
-        try{ ticketsArr = await fetchTicketsFromDb() }catch(_){ ticketsArr = cachedTickets || [] }
-        if(!ticketsArr.length && cachedTickets?.length) ticketsArr = cachedTickets
+        let ticketsArr = cachedTickets || []
+        if(!ticketsArr.length){
+          try{ ticketsArr = await fetchTicketsFromDb() }catch(_){ ticketsArr = [] }
+        }
         const normalizedTickets = ticketsArr.map(t => ({ ...t, comments: parseCommentsValue(t.comments) }))
 
-        let users = []
-        try{ users = Object.values((await db.ref("users_by_email").once("value")).val() || {}) }catch(_){ users = Object.values(cachedUsersByEmail || {}) }
+        let users = Object.values(cachedUsersByEmail || {})
+        if(!users.length){
+          try{ users = Object.values((await db.ref("users_by_email").once("value")).val() || {}) }catch(_){ users = [] }
+        }
 
-        let activity = []
-        try{ activity = Object.values((await db.ref("activity_logs").limitToLast(30).once("value")).val() || {}) }catch(_){ activity = [] }
+        let activity = latestActivityLogs || []
+        if(!activity.length){
+          try{ activity = Object.values((await db.ref("activity_logs").limitToLast(30).once("value")).val() || {}) }catch(_){ activity = [] }
+        }
 
         let total = 0, unassigned = 0, doing = 0, done = 0
         const kpiSource = currentRole === "consultor" ? normalizedTickets.filter(t => String(t.informer||t.createdBy||"").toLowerCase() === String(currentUser?.email||"").toLowerCase()) : normalizedTickets
