@@ -1197,7 +1197,7 @@ Cliente B`)
         .join("")
 
       const canDelete = currentRole === "admin"
-      const canMove = currentRole === "admin" || currentRole === "analista"
+      const canMove = currentRole === "admin" || currentRole === "analista" || currentRole === "consultor"
       const canAssign = currentRole === "admin" || currentRole === "analista"
 
       const assignSelect = canAssign ? `
@@ -1610,7 +1610,7 @@ Cliente B`)
     }
 
     async function moveTicket(id){
-      if(!(currentRole === "admin" || currentRole === "analista")) return alert("No tenés permisos para mover tickets")
+      if(!(currentRole === "admin" || currentRole === "analista" || currentRole === "consultor")) return alert("No tenés permisos para mover tickets")
       const next = document.getElementById(`next-${id}`)?.value
       if(!next) return
 
