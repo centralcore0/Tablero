@@ -11787,7 +11787,7 @@ function getVisibleTicketsForCurrentView(data, includeSearch = true){
     }
 
     function setDailyAdminViewMode(mode){
-      dailyAdminViewMode = ["assign","details","history"].includes(String(mode||"")) ? String(mode) : "assign"
+      dailyAdminViewMode = ["assign","details","history"].includes(String(mode||"")) ? String(mode) : "details"
       loadDailysAdmin()
     }
 
